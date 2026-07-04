@@ -1,7 +1,5 @@
 from datetime import datetime
-
 from pydantic import BaseModel, EmailStr, field_validator
-
 
 # 注册请求体：用户名 + 密码 + 邮箱，含字段校验
 class RegisterRequest(BaseModel):

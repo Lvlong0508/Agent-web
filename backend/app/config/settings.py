@@ -2,12 +2,12 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # 数据库连接配置（默认 MySQL 3306）
-    DB_HOST: str = "localhost"
-    DB_PORT: int = 3306
-    DB_USER: str = "root"
-    DB_PASSWORD: str = ""
-    DB_NAME: str = "agent_web"
+    # 数据库连接配置（所有值从 .env 读取，不留默认值）
+    DB_HOST: str
+    DB_PORT: int
+    DB_USER: str
+    DB_PASSWORD: str
+    DB_NAME: str
 
     # JWT 鉴权配置
     JWT_SECRET_KEY: str  # 密钥，必须从 .env 文件读取
