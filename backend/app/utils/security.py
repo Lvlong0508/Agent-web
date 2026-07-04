@@ -6,6 +6,7 @@ from passlib.context import CryptContext
 from app.config.settings import settings
 from app.exceptions import AppException
 
+# bcrypt 密码哈希上下文（自动处理 salt 和轮数）
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
@@ -17,6 +18,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
+# 生成短令牌（用于 API 鉴权，30 分钟过期）
 def create_access_token(user_id: int) -> str:
     now = datetime.now(timezone.utc)
     payload = {
@@ -28,6 +30,7 @@ def create_access_token(user_id: int) -> str:
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
+# 生成刷新令牌（用于续期，7 天过期）
 def create_refresh_token(user_id: int) -> str:
     now = datetime.now(timezone.utc)
     payload = {
@@ -39,6 +42,7 @@ def create_refresh_token(user_id: int) -> str:
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
+# 解码并验证令牌，失败时抛出统一异常
 def decode_token(token: str) -> dict:
     try:
         return jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])

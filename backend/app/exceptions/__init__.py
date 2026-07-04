@@ -1,3 +1,7 @@
+# 自定义异常体系：所有业务异常继承 AppException，由全局处理器统一转为 JSON
+# 每个异常携带：detail（用户提示）、code（错误码）、status_code（HTTP 状态码）
+
+
 class AppException(Exception):
     def __init__(self, detail: str, code: str, status_code: int = 400):
         self.detail = detail
@@ -5,6 +9,7 @@ class AppException(Exception):
         self.status_code = status_code
 
 
+# 409 用户名或邮箱已存在
 class UserExistsError(AppException):
     def __init__(self, field: str):
         super().__init__(
@@ -14,6 +19,7 @@ class UserExistsError(AppException):
         )
 
 
+# 401 用户名或密码错误
 class InvalidCredentialsError(AppException):
     def __init__(self):
         super().__init__(
@@ -23,6 +29,7 @@ class InvalidCredentialsError(AppException):
         )
 
 
+# 401 未认证或 Token 无效
 class UnauthorizedError(AppException):
     def __init__(self, detail: str = "Not authenticated"):
         super().__init__(
@@ -32,6 +39,7 @@ class UnauthorizedError(AppException):
         )
 
 
+# 404 资源不存在
 class NotFoundError(AppException):
     def __init__(self, entity: str = "Resource"):
         super().__init__(

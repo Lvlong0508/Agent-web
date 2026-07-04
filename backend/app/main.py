@@ -9,14 +9,17 @@ from app.database import init_db
 from app.exceptions import AppException
 
 
+# 应用生命周期：启动时自动创建数据库表
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     yield
 
 
+# FastAPI 应用实例
 app = FastAPI(title="Agent Web API", version="0.1.0", lifespan=lifespan)
 
+# 跨域配置（开发阶段允许所有来源）
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,6 +29,7 @@ app.add_middleware(
 )
 
 
+# 全局异常处理器：将自定义异常转为统一 JSON 格式返回
 @app.exception_handler(AppException)
 async def app_exception_handler(request, exc: AppException):
     return JSONResponse(
@@ -34,4 +38,5 @@ async def app_exception_handler(request, exc: AppException):
     )
 
 
+# 注册路由模块
 app.include_router(auth_router)

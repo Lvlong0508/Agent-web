@@ -12,10 +12,12 @@ from app.utils.security import (
 )
 
 
+# 认证业务逻辑层：串联数据访问、密码加密、令牌生成
 class AuthService:
     def __init__(self, session: AsyncSession):
         self.dao = UserRepository(session)
 
+    # 注册流程：检查重复 -> 哈希密码 -> 创建用户
     async def register(self, username: str, email: str, password: str) -> UserResponse:
         existing_user = await self.dao.get_by_username(username)
         if existing_user:
@@ -27,6 +29,7 @@ class AuthService:
         user = await self.dao.create(username, email, hashed)
         return UserResponse.model_validate(user)
 
+    # 登录流程：验证凭据 -> 生成双令牌
     async def login(self, username: str, password: str) -> dict:
         user = await self.dao.get_by_username(username)
         if not user or not verify_password(password, user.hashed_password):
@@ -37,6 +40,7 @@ class AuthService:
             "token_type": "bearer",
         }
 
+    # 刷新令牌流程：校验刷新令牌 -> 重新生成双令牌
     async def refresh(self, refresh_token: str) -> dict:
         payload = decode_token(refresh_token)
         if payload.get("type") != "refresh":
@@ -53,6 +57,7 @@ class AuthService:
             "token_type": "bearer",
         }
 
+    # 获取当前用户信息
     async def get_current_user(self, user_id: int) -> UserResponse:
         user = await self.dao.get_by_id(user_id)
         if not user:
