@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.models.conversation import Conversation
@@ -30,7 +32,6 @@ class ConversationRepo:
 
     async def update_title(self, conv_id: str, title: str):
         """更新对话标题和 updated_at 时间戳"""
-        from datetime import datetime, timezone
         await self.collection.update_one(
             {"_id": conv_id},
             {"$set": {"title": title, "updated_at": datetime.now(timezone.utc)}},
