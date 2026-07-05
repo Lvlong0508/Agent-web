@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.db.mongodb import get_db
+from app.middleware.mongodb import get_db
 from app.dependencies import get_current_user_id
 from app.services.chat_service import ChatService
 from pydantic import BaseModel
