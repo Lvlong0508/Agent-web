@@ -1,51 +1,6 @@
-# Python
+.venv/
 __pycache__/
-*.py[cod]
-*.pyo
-*.egg-info/
-dist/
-build/
-*.egg
-.eggs/
+*.pyc
 .pytest_cache/
-.coverage
-coverage/
-htmlcov/
-.tox/
-.mypy_cache/
-.ruff_cache/
-
-# Environment
-.env
-.env.example
-*.local
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Node / Frontend
+dist/
 node_modules/
-package-lock.json
-
-# IDE / Editors
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-logs/
-*.log
-
-# Tools
-.codegraph/
-
-# Docs
-docs/

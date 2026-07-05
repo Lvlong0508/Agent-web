@@ -1,5 +1,9 @@
 # AgentWeb 项目规则
 
+## 环境
+本项目专用的 conda 环境名为 `agent-web`，所有 Python 依赖安装在此环境中。
+后端启动脚本 `scripts/start_backend.py` 会自动激活该环境。
+
 ## 用户角色
 本项目用户是 **Python/Web 学习者**。编写的每一行代码都应当帮助理解，不得默认读者有专业背景。
 
