@@ -1,9 +1,13 @@
 import asyncio
 import json
+import warnings
 from datetime import datetime, timezone
 
+# 智谱 SDK 内部用 API Key 的 secret 部分签 JWT，密钥长度不受我们控制，屏蔽无害警告
+warnings.filterwarnings("ignore", category=UserWarning, module="jwt")
+
 from langchain_core.messages import HumanMessage, AIMessage
-from langchain_community.chat_models import ChatTongyi
+from langchain_community.chat_models import ChatZhipuAI
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.config.settings import settings
@@ -93,9 +97,9 @@ class ChatService:
                 langchain_messages.append(AIMessage(content=m.content))
 
         # 4. 调用 LangChain 流式生成
-        llm = ChatTongyi(
+        llm = ChatZhipuAI(
             model=settings.LLM_MODEL,
-            api_key=settings.LLM_API_KEY,
+            api_key=settings.ZHIPUAI_API_KEY,
             streaming=True,
         )
 
@@ -125,9 +129,9 @@ class ChatService:
             history = await self.msg_repo.list_by_conversation(conv_id)
             messages_text = "\n".join(f"{m.role}: {m.content}" for m in history)
 
-            llm = ChatTongyi(
+            llm = ChatZhipuAI(
                 model=settings.LLM_MODEL,
-                api_key=settings.LLM_API_KEY,
+                api_key=settings.ZHIPUAI_API_KEY,
             )
             title_prompt = (
                 f"根据以下对话内容，生成一个简短的对话标题（不超过20个字）：\n\n{messages_text}"

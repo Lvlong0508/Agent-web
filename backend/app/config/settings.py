@@ -19,9 +19,9 @@ class Settings(BaseSettings):
     MONGODB_URI: str
     MONGODB_DB_NAME: str
 
-    # 通义千问 LLM 配置
-    LLM_API_KEY: str          # DashScope API Key，必须从 .env 读取
-    LLM_MODEL: str# 模型名
+    # 智谱 GLM LLM 配置
+    ZHIPUAI_API_KEY: str  # 智谱 AI API Key，必须从系统环境变量设置
+    LLM_MODEL: str = "glm-4.7-flash"           # 模型名
 
     # 动态拼接 MySQL 连接 URL
     @property
