@@ -1,7 +1,9 @@
 import asyncio
+import json
 from datetime import datetime, timezone
 
 from langchain.schema import HumanMessage, AIMessage
+from langchain_community.chat_models import ChatTongyi
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.config.settings import settings
@@ -91,8 +93,6 @@ class ChatService:
                 langchain_messages.append(AIMessage(content=m.content))
 
         # 4. 调用 LangChain 流式生成
-        from langchain_community.chat_models import ChatTongyi
-
         llm = ChatTongyi(
             model=settings.LLM_MODEL,
             api_key=settings.LLM_API_KEY,
@@ -104,7 +104,7 @@ class ChatService:
             if chunk.content:
                 token = chunk.content
                 full_response += token
-                yield f"data: {{\"token\": \"{token}\"}}\n\n"
+                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
 
         # 5. 保存 assistant 回复
         assistant_msg = Message(
@@ -117,15 +117,13 @@ class ChatService:
 
         # 7. 如果是首条完整对话（恰好 2 条消息），后台生成标题
         if len(history) == 1:  # 只有刚才插入的那条 user 消息
-            asyncio.create_task(self._generate_title(conv_id, full_response))
+            asyncio.create_task(self._generate_title(conv_id))
 
-    async def _generate_title(self, conv_id: str, first_response: str):
+    async def _generate_title(self, conv_id: str):
         """后台异步生成对话标题，基于首条 user 消息和 LLM 的回复"""
         try:
             history = await self.msg_repo.list_by_conversation(conv_id)
             messages_text = "\n".join(f"{m.role}: {m.content}" for m in history)
-
-            from langchain_community.chat_models import ChatTongyi
 
             llm = ChatTongyi(
                 model=settings.LLM_MODEL,
