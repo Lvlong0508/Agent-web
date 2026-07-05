@@ -5,20 +5,21 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.middleware.mongodb import get_db
 from app.dependencies import get_current_user_id
 from app.services.chat_service import ChatService
-from pydantic import BaseModel
+from app.schemas.chat import (
+    SendMessageRequest,
+    ConversationResponse,
+    ConversationListItem,
+    MessageResponse,
+    DeleteResponse,
+)
 
 
 # 聊天模块路由，统一前缀 /chat
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
-class SendMessageRequest(BaseModel):
-    """发送消息请求体"""
-    content: str
-
-
 # POST /chat/conversations — 创建新对话
-@router.post("/conversations", status_code=201)
+@router.post("/conversations", status_code=201, response_model=ConversationResponse)
 async def create_conversation(
     user_id: str = Depends(get_current_user_id),
     db: AsyncIOMotorDatabase = Depends(get_db),
@@ -28,7 +29,7 @@ async def create_conversation(
 
 
 # GET /chat/conversations — 获取对话列表
-@router.get("/conversations")
+@router.get("/conversations", response_model=list[ConversationListItem])
 async def list_conversations(
     user_id: str = Depends(get_current_user_id),
     db: AsyncIOMotorDatabase = Depends(get_db),
@@ -38,7 +39,7 @@ async def list_conversations(
 
 
 # DELETE /chat/conversations/{conv_id} — 删除对话
-@router.delete("/conversations/{conv_id}")
+@router.delete("/conversations/{conv_id}", response_model=DeleteResponse)
 async def delete_conversation(
     conv_id: str,
     user_id: str = Depends(get_current_user_id),
@@ -46,11 +47,11 @@ async def delete_conversation(
 ):
     service = ChatService(db)
     await service.delete_conversation(conv_id, user_id)
-    return {"detail": "deleted"}
+    return DeleteResponse()
 
 
 # GET /chat/conversations/{conv_id}/messages — 获取历史消息
-@router.get("/conversations/{conv_id}/messages")
+@router.get("/conversations/{conv_id}/messages", response_model=list[MessageResponse])
 async def get_messages(
     conv_id: str,
     user_id: str = Depends(get_current_user_id),

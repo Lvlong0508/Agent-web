@@ -26,7 +26,7 @@ class ChatService:
     async def create_conversation(self, user_id: str) -> dict:
         """创建新对话，返回对话基本信息"""
         conv = await self.conv_repo.create(user_id)
-        return {"id": conv.id, "title": conv.title, "created_at": conv.created_at.isoformat()}
+        return {"id": conv.id, "title": conv.title, "created_at": conv.created_at}
 
     async def list_conversations(self, user_id: str) -> list[dict]:
         """列出用户的所有对话"""
@@ -35,8 +35,8 @@ class ChatService:
             {
                 "id": c.id,
                 "title": c.title or "新对话",
-                "created_at": c.created_at.isoformat(),
-                "updated_at": c.updated_at.isoformat(),
+                "created_at": c.created_at,
+                "updated_at": c.updated_at,
             }
             for c in convs
         ]
@@ -56,7 +56,7 @@ class ChatService:
             raise PermissionError("对话不存在或无权访问")
         msgs = await self.msg_repo.list_by_conversation(conv_id)
         return [
-            {"role": m.role, "content": m.content, "created_at": m.created_at.isoformat()}
+            {"role": m.role, "content": m.content, "created_at": m.created_at}
             for m in msgs
         ]
 
