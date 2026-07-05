@@ -6,14 +6,17 @@ from fastapi.responses import JSONResponse
 
 from app.api.v1.auth import router as auth_router
 from app.database import init_db
+from app.db.mongodb import MongoDB
 from app.exceptions import AppException
 
 
 # 应用生命周期：启动时自动创建数据库表
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
+    await init_db()           # 初始化 MySQL
+    await MongoDB.connect()   # 初始化 MongoDB
     yield
+    await MongoDB.close()     # 关闭 MongoDB
 
 
 # FastAPI 应用实例
