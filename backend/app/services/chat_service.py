@@ -2,7 +2,7 @@ import asyncio
 import json
 from datetime import datetime, timezone
 
-from langchain.schema import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_community.chat_models import ChatTongyi
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
