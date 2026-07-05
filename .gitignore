@@ -1,6 +1,17 @@
-.venv/
+.vscode/
+.codegraph/
 __pycache__/
 *.pyc
 .pytest_cache/
 dist/
 node_modules/
+
+# 文档
+docs/
+
+# 规则
+AGENTS.md
+
+# backend
+backend/.env
+backend/.env.example
