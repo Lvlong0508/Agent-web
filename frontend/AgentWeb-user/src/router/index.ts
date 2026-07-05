@@ -5,8 +5,14 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      name: 'home',
-      component: () => import('@/views/Home/Home.vue'),
+      name: 'chat',
+      component: () => import('@/views/Chat/Chat.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/profile',
+      name: 'profile',
+      component: () => import('@/views/Profile/Profile.vue'),
       meta: { requiresAuth: true },
     },
     {

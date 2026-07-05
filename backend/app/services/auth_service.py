@@ -22,7 +22,7 @@ class AuthService:
         existing_user = await self.dao.get_by_username(username)
         if existing_user:
             raise UserExistsError("Username")
-        existing_email = await self.dao.get_by_email(email)
+        existing_email = await self.dao.exists_by_email(email)
         if existing_email:
             raise UserExistsError("Email")
         hashed = hash_password(password)
@@ -46,7 +46,7 @@ class AuthService:
         if payload.get("type") != "refresh":
             raise UnauthorizedError("Invalid refresh token")
 
-        user_id = int(payload["sub"])
+        user_id = str(payload["sub"])
         user = await self.dao.get_by_id(user_id)
         if not user:
             raise UnauthorizedError("User not found")
@@ -58,7 +58,7 @@ class AuthService:
         }
 
     # 获取当前用户信息
-    async def get_current_user(self, user_id: int) -> UserResponse:
+    async def get_current_user(self, user_id: str) -> UserResponse:
         user = await self.dao.get_by_id(user_id)
         if not user:
             raise UnauthorizedError("User not found")

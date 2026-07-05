@@ -1,0 +1,5 @@
+export const TITLE = 'AgentWeb'
+export const PLACEHOLDER = '输入消息...'
+export const SEND = '发送'
+export const NO_CONVERSATION = '选择对话开始聊天'
+export const LOADING = '加载中...'

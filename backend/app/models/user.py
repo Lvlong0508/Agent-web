@@ -1,4 +1,6 @@
-from sqlalchemy import Column, Integer, String, DateTime, func
+import uuid
+
+from sqlalchemy import Column, String, DateTime, func
 from sqlalchemy.orm import DeclarativeBase
 
 
@@ -11,7 +13,7 @@ class Base(DeclarativeBase):
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     username = Column(String(50), nullable=False, unique=True)   # 用户名，唯一
     email = Column(String(100), nullable=False, unique=True)     # 邮箱，唯一
     hashed_password = Column(String(255), nullable=False)        # bcrypt 哈希后的密码

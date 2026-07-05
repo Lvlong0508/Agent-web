@@ -9,12 +9,12 @@ bearer_scheme = HTTPBearer()
 
 
 # 依赖注入函数：解析当前请求的用户 ID
-# 用法：user_id: int = Depends(get_current_user_id)
+# 用法：user_id: str = Depends(get_current_user_id)
 def get_current_user_id(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-) -> int:
+) -> str:
     token = credentials.credentials
     payload = decode_token(token)
     if payload.get("type") != "access":
         raise UnauthorizedError("Invalid access token")
-    return int(payload["sub"])
+    return payload["sub"]

@@ -19,7 +19,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 # 生成短令牌（用于 API 鉴权，30 分钟过期）
-def create_access_token(user_id: int) -> str:
+def create_access_token(user_id: str) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user_id),
@@ -31,7 +31,7 @@ def create_access_token(user_id: int) -> str:
 
 
 # 生成刷新令牌（用于续期，7 天过期）
-def create_refresh_token(user_id: int) -> str:
+def create_refresh_token(user_id: str) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user_id),

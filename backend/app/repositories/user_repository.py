@@ -1,3 +1,5 @@
+import uuid
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,14 +13,19 @@ class UserRepository:
 
     # 创建新用户
     async def create(self, username: str, email: str, hashed_password: str) -> User:
-        user = User(username=username, email=email, hashed_password=hashed_password)
+        user = User(
+            id=str(uuid.uuid4()),
+            username=username,
+            email=email,
+            hashed_password=hashed_password,
+        )
         self.session.add(user)
         await self.session.flush()     # 刷新到数据库以获取 ID
         await self.session.refresh(user)  # 重新加载最新数据
         return user
 
     # 根据 ID 查询
-    async def get_by_id(self, user_id: int) -> User | None:
+    async def get_by_id(self, user_id: str) -> User | None:
         return await self.session.get(User, user_id)
 
     # 根据用户名查询（用于注册查重、登录验证）
@@ -29,8 +36,8 @@ class UserRepository:
         return result.scalar_one_or_none()
 
     # 根据邮箱查询（用于注册查重）
-    async def get_by_email(self, email: str) -> User | None:
+    async def exists_by_email(self, email: str) -> bool:
         result = await self.session.execute(
             select(User).where(User.email == email)
         )
-        return result.scalar_one_or_none()
+        return result.scalar_one_or_none() is not None

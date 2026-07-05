@@ -1,0 +1,7 @@
+export const TITLE = '用户信息'
+export const USERNAME = '用户名'
+export const EMAIL = '邮箱'
+export const CREATED_AT = '注册时间'
+export const BACK = '返回聊天'
+export const LOGOUT = '退出登录'
+export const LOGOUT_CONFIRM = '确定退出登录？'

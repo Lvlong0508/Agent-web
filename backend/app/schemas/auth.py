@@ -35,7 +35,7 @@ class RefreshTokenRequest(BaseModel):
 
 # 用户信息响应（抑制密码字段不返回）
 class UserResponse(BaseModel):
-    id: int
+    id: str
     username: str
     email: str
     created_at: datetime

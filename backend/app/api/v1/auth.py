@@ -40,7 +40,7 @@ async def refresh(body: RefreshTokenRequest, session: AsyncSession = Depends(get
 # GET /auth/me - 获取当前登录用户信息（需 Bearer Token）
 @router.get("/me", response_model=UserResponse)
 async def get_me(
-    user_id: int = Depends(get_current_user_id),
+    user_id: str = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_db),
 ):
     service = AuthService(session)
