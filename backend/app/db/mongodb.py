@@ -17,7 +17,7 @@ class MongoDB:
 
     @classmethod
     async def close(cls):
-        """关闭 MongoDB 连接"""
+        """关闭 MongoDB 连接（Motor 的 close() 是同步方法，无需 await）"""
         if cls.client:
             cls.client.close()
             cls.client = None
@@ -29,4 +29,6 @@ async def get_db() -> AsyncIOMotorDatabase:
     """FastAPI 依赖注入函数，返回 MongoDB 数据库引用"""
     if MongoDB.db is None:
         await MongoDB.connect()
+        # connect() 成功后 db 一定不为 None，告知类型检查器
+        assert MongoDB.db is not None
     return MongoDB.db
