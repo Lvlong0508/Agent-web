@@ -138,3 +138,77 @@
   background: #ccc;
   cursor: not-allowed;
 }
+
+/* 对话列表增强 */
+.sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.btn-new-chat {
+  padding: 4px 12px;
+  border: 1px solid #1a73e8;
+  border-radius: 14px;
+  background: transparent;
+  color: #1a73e8;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-new-chat:hover {
+  background: #1a73e8;
+  color: #fff;
+}
+
+.sidebar-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sidebar-item.active {
+  background: #e8f0fe;
+  color: #1a73e8;
+}
+
+.conv-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-delete {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #999;
+  cursor: pointer;
+  font-size: 14px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sidebar-item:hover .btn-delete {
+  display: flex;
+}
+
+.btn-delete:hover {
+  background: #fee;
+  color: #e74c3c;
+}
+
+/* 错误消息 */
+.message.error {
+  align-self: center;
+  background: #fff3f3;
+  color: #e74c3c;
+  font-size: 13px;
+  max-width: 100%;
+}
