@@ -88,7 +88,7 @@ async def test_chat_stream_saves_messages(chat_service):
     mock_llm = MagicMock()
     mock_llm.astream.return_value.__aiter__.return_value = [mock_chunk]
 
-    with patch("app.services.chat_service.ChatZhipuAI", return_value=mock_llm):
+    with patch("app.services.chat_service.ChatOpenAI", return_value=mock_llm):
         tokens = []
         async for chunk in chat_service.chat_stream("c1", "u1", "hello"):
             tokens.append(chunk)
@@ -123,7 +123,7 @@ async def test_title_generation_triggered_on_first_message(chat_service):
     # 标题 LLM 调用
     mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content='"测试标题"'))
 
-    with patch("app.services.chat_service.ChatZhipuAI", return_value=mock_llm):
+    with patch("app.services.chat_service.ChatOpenAI", return_value=mock_llm):
         with patch("asyncio.create_task") as mock_task:
             async for _ in chat_service.chat_stream("c1", "u1", "hello"):
                 pass

@@ -19,9 +19,9 @@ class Settings(BaseSettings):
     MONGODB_URI: str
     MONGODB_DB_NAME: str
 
-    # 智谱 GLM LLM 配置
-    ZHIPUAI_API_KEY: str  # 智谱 AI API Key，必须从系统环境变量设置
-    LLM_MODEL: str = "glm-4.7-flash"           # 模型名
+    # Ollama 本地 LLM 配置
+    OLLAMA_BASE_URL: str = "http://localhost:11434"  # Ollama 服务地址
+    LLM_MODEL: str = "glm-4.7-flash"                  # 本地部署的模型名
 
     # 动态拼接 MySQL 连接 URL
     @property
