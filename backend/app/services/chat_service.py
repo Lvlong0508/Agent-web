@@ -23,14 +23,14 @@ class ChatService:
     # 对话管理
     # ----------------------------------------------------------------
 
-    async def create_conversation(self, user_id: str) -> dict:
-        """创建新对话，返回对话基本信息"""
-        conv = await self.conv_repo.create(user_id)
+    async def create_conversation(self) -> dict:
+        """创建新对话，返回对话基本信息（归属固定匿名用户）"""
+        conv = await self.conv_repo.create(settings.DEFAULT_USER_ID)
         return {"id": conv.id, "title": conv.title, "created_at": conv.created_at}
 
-    async def list_conversations(self, user_id: str) -> list[dict]:
-        """列出用户的所有对话"""
-        convs = await self.conv_repo.list_by_user(user_id)
+    async def list_conversations(self) -> list[dict]:
+        """列出全部对话（单用户模式下即匿名用户的全部对话）"""
+        convs = await self.conv_repo.list_by_user(settings.DEFAULT_USER_ID)
         return [
             {
                 "id": c.id,
@@ -41,18 +41,18 @@ class ChatService:
             for c in convs
         ]
 
-    async def delete_conversation(self, conv_id: str, user_id: str):
+    async def delete_conversation(self, conv_id: str):
         """删除对话及其全部消息"""
         conv = await self.conv_repo.get_by_id(conv_id)
-        if not conv or conv.user_id != user_id:
+        if not conv or conv.user_id != settings.DEFAULT_USER_ID:
             raise PermissionError("对话不存在或无权访问")
         await self.msg_repo.delete_by_conversation(conv_id)
         await self.conv_repo.delete(conv_id)
 
-    async def get_messages(self, conv_id: str, user_id: str) -> list[dict]:
+    async def get_messages(self, conv_id: str) -> list[dict]:
         """获取对话的历史消息"""
         conv = await self.conv_repo.get_by_id(conv_id)
-        if not conv or conv.user_id != user_id:
+        if not conv or conv.user_id != settings.DEFAULT_USER_ID:
             raise PermissionError("对话不存在或无权访问")
         msgs = await self.msg_repo.list_by_conversation(conv_id)
         return [
@@ -64,10 +64,10 @@ class ChatService:
     # LLM 流式聊天
     # ----------------------------------------------------------------
 
-    async def chat_stream(self, conv_id: str, user_id: str, content: str):
+    async def chat_stream(self, conv_id: str, content: str):
         """
         核心流程：
-        1. 校验对话归属
+        1. 校验对话归属（匿名用户）
         2. 保存用户消息
         3. 拉取完整历史
         4. 调用 LangChain astream 逐块产出
@@ -76,7 +76,7 @@ class ChatService:
         """
         # 1. 校验对话归属
         conv = await self.conv_repo.get_by_id(conv_id)
-        if not conv or conv.user_id != user_id:
+        if not conv or conv.user_id != settings.DEFAULT_USER_ID:
             raise PermissionError("对话不存在或无权访问")
 
         # 2. 保存用户消息

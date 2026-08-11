@@ -26,7 +26,7 @@ async def test_create_conversation(chat_service):
         _id="test-id", user_id="user-1", title="",
     ))
 
-    result = await chat_service.create_conversation("user-1")
+    result = await chat_service.create_conversation()
 
     assert result["id"] == "test-id"
     assert result["title"] == ""
@@ -44,7 +44,7 @@ async def test_list_conversations_empty_title(chat_service):
     ]
     chat_service.conv_repo.list_by_user = AsyncMock(return_value=mock_convs)
 
-    result = await chat_service.list_conversations("u1")
+    result = await chat_service.list_conversations()
 
     assert len(result) == 2
     assert result[0]["title"] == "对话1"
@@ -59,7 +59,7 @@ async def test_get_messages_unauthorized(chat_service):
     ))
 
     with pytest.raises(PermissionError):
-        await chat_service.get_messages("c1", "my-user")
+        await chat_service.get_messages("c1")
 
 
 @pytest.mark.asyncio
@@ -70,13 +70,13 @@ async def test_delete_conversation_unauthorized(chat_service):
     ))
 
     with pytest.raises(PermissionError):
-        await chat_service.delete_conversation("c1", "my-user")
+        await chat_service.delete_conversation("c1")
 
 
 @pytest.mark.asyncio
 async def test_chat_stream_saves_messages(chat_service):
     """测试聊天流会保存 user 和 assistant 消息"""
-    conv = Conversation(_id="c1", user_id="u1")
+    conv = Conversation(_id="c1", user_id="anonymous")
     chat_service.conv_repo.get_by_id = AsyncMock(return_value=conv)
     chat_service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
     chat_service.msg_repo.create = AsyncMock(return_value=None)
@@ -90,7 +90,7 @@ async def test_chat_stream_saves_messages(chat_service):
 
     with patch("app.services.chat_service.ChatOpenAI", return_value=mock_llm):
         tokens = []
-        async for chunk in chat_service.chat_stream("c1", "u1", "hello"):
+        async for chunk in chat_service.chat_stream("c1", "hello"):
             tokens.append(chunk)
 
     # 应收到 SSE token 数据和 [DONE]
@@ -106,7 +106,7 @@ async def test_title_generation_triggered_on_first_message(chat_service):
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
 
-    conv = Conversation(_id="c1", user_id="u1", title="")
+    conv = Conversation(_id="c1", user_id="anonymous", title="")
     chat_service.conv_repo.get_by_id = AsyncMock(return_value=conv)
 
     # 模拟已有 1 条 user 消息（刚保存的）
@@ -125,7 +125,7 @@ async def test_title_generation_triggered_on_first_message(chat_service):
 
     with patch("app.services.chat_service.ChatOpenAI", return_value=mock_llm):
         with patch("asyncio.create_task") as mock_task:
-            async for _ in chat_service.chat_stream("c1", "u1", "hello"):
+            async for _ in chat_service.chat_stream("c1", "hello"):
                 pass
             # 验证 create_task 被调用（即标题生成被触发）
             assert mock_task.called
