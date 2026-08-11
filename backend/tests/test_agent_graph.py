@@ -78,14 +78,22 @@ async def test_astream_runs_full_graph_with_title_and_tokens():
     title_llm = GenericFakeChatModel(messages=iter([AIMessage(content='"测试标题"')]))
     agent_llm = GenericFakeChatModel(messages=iter([AIMessage(content="你好，世界")]))
 
-    def fake_create_llm(streaming: bool = True):
+    # 记录图内节点创建 LLM 时传入的 model 选择名，用于验证透传
+    received_models = []
+
+    def fake_create_llm(streaming: bool = True, model: str = ""):
+        received_models.append(model)
         return title_llm if not streaming else agent_llm
 
     graph = build_agent_graph(conv_repo)
     full_text = ""
     with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
         async for item in graph.astream(
-            {"messages": [HumanMessage(content="hi")], "conv_id": "c1"},
+            {
+                "messages": [HumanMessage(content="hi")],
+                "conv_id": "c1",
+                "model": settings.MODEL_DASHSCOPE_QWEN,
+            },
             stream_mode="messages",
         ):
             if isinstance(item, tuple):
@@ -97,6 +105,8 @@ async def test_astream_runs_full_graph_with_title_and_tokens():
     conv_repo.update_title.assert_awaited_once_with("c1", "测试标题")
     # agent 节点的回复以 token 形式流式拼出
     assert "你好，世界" in full_text
+    # 图内节点应按所选模型创建 LLM（标题节点 + agent 节点各调用一次）
+    assert received_models == [settings.MODEL_DASHSCOPE_QWEN] * 2
 
 
 @pytest.mark.asyncio
@@ -117,14 +127,22 @@ async def test_title_failure_does_not_block_chat():
     title_llm.ainvoke = boom
     agent_llm = GenericFakeChatModel(messages=iter([AIMessage(content="仍正常回复")]))
 
-    def fake_create_llm(streaming: bool = True):
+    # 记录图内节点创建 LLM 时传入的 model 选择名，用于验证透传
+    received_models = []
+
+    def fake_create_llm(streaming: bool = True, model: str = ""):
+        received_models.append(model)
         return title_llm if not streaming else agent_llm
 
     graph = build_agent_graph(conv_repo)
     full_text = ""
     with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
         async for item in graph.astream(
-            {"messages": [HumanMessage(content="hi")], "conv_id": "c1"},
+            {
+                "messages": [HumanMessage(content="hi")],
+                "conv_id": "c1",
+                "model": settings.MODEL_DASHSCOPE_QWEN,
+            },
             stream_mode="messages",
         ):
             if isinstance(item, tuple):
@@ -134,6 +152,8 @@ async def test_title_failure_does_not_block_chat():
 
     # 标题生成失败被静默吞掉，聊天回复不受影响
     assert "仍正常回复" in full_text
+    # 图内节点应按所选模型创建 LLM（标题节点 + agent 节点各调用一次）
+    assert received_models == [settings.MODEL_DASHSCOPE_QWEN] * 2
 
 
 def test_create_llm_ollama_model():

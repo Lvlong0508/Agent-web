@@ -10,8 +10,9 @@ from app.repositories.conversation_repo import ConversationRepo
 
 
 class AgentState(MessagesState):
-    """agent 图的共享状态：消息列表（继承）+ 当前对话 ID"""
+    """agent 图的共享状态：消息列表（继承）+ 当前对话 ID + 模型选择名"""
     conv_id: str
+    model: str = settings.MODEL_OLLAMA  # 缺省回退本地 Ollama
 
 
 def create_llm(streaming: bool = True, model: str = "") -> ChatOpenAI:
@@ -67,7 +68,7 @@ def build_agent_graph(conv_repo: ConversationRepo):
         conv = await conv_repo.get_by_id(state["conv_id"])
         try:
             title = await _generate_title_if_empty(
-                conv, state["messages"], create_llm(streaming=False)
+                conv, state["messages"], create_llm(streaming=False, model=state["model"])
             )
             if title:
                 await conv_repo.update_title(state["conv_id"], title)
@@ -78,7 +79,7 @@ def build_agent_graph(conv_repo: ConversationRepo):
 
     # agent 节点：把全部消息交给 LLM 生成回复（stream_mode 会自动流式输出 token）
     async def agent_node(state: AgentState) -> dict:
-        response = await create_llm().ainvoke(state["messages"])
+        response = await create_llm(model=state["model"]).ainvoke(state["messages"])
         return {"messages": [response]}
 
     graph = StateGraph(AgentState)
