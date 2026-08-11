@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import {
   listConversations,
   createConversation,
@@ -94,7 +94,9 @@ export function useChat() {
 
     messages.value.push({ role: 'user', content: text })
 
-    const assistantMsg = { role: 'assistant', content: '' }
+    // 用 reactive 创建响应式消息对象：普通对象修改不触发 Vue 渲染，
+    // 会导致 token 一直攒到流结束才一次性显示（整段出现）
+    const assistantMsg = reactive({ role: 'assistant', content: '' })
     messages.value.push(assistantMsg)
 
     // 打字机渲染缓冲：token 先进队列，定时器每帧取出一个并入 content，
