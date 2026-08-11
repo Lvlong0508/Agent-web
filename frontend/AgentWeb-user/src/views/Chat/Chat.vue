@@ -3,6 +3,7 @@ import {
   PLACEHOLDER, SEND, NEW_CHAT, DELETE,
   EMPTY_CONVERSATIONS, EMPTY_CHAT, LOADING,
   MODEL_OLLAMA_LABEL, MODEL_DASHSCOPE_LABEL,
+  THINKING,
 } from './Text'
 import { useChat } from './Chat'
 import './Chat.css'
@@ -58,8 +59,15 @@ const {
           <div
             v-for="(msg, i) in messages"
             :key="i"
-            :class="['message', msg.role]"
-          >{{ msg.content }}</div>
+            :class="['msg-wrap', msg.role]"
+          >
+            <!-- 思考阶段提示：仅流式首 token 到达前显示在气泡左上方 -->
+            <span v-if="msg.thinking" class="thinking">
+              {{ THINKING }}
+              <span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>
+            </span>
+            <div class="message" :class="msg.role">{{ msg.content }}</div>
+          </div>
           <div v-if="error" class="message error">{{ error }}</div>
         </div>
 
