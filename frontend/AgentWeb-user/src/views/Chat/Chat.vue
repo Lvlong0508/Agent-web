@@ -64,9 +64,10 @@ const {
             <!-- 思考阶段提示：仅流式首 token 到达前显示在气泡左上方 -->
             <span v-if="msg.thinking" class="thinking">
               {{ THINKING }}
-              <span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>
+              <span class="dot" aria-hidden="true">.</span><span class="dot" aria-hidden="true">.</span><span class="dot" aria-hidden="true">.</span>
             </span>
-            <div class="message" :class="msg.role">{{ msg.content }}</div>
+            <!-- 正文为空时隐藏气泡：思考阶段不显示空灰泡，token 到达后自动出现 -->
+            <div v-if="msg.content" class="message" :class="msg.role">{{ msg.content }}</div>
           </div>
           <div v-if="error" class="message error">{{ error }}</div>
         </div>
