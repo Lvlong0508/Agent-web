@@ -11,7 +11,7 @@ class Settings(BaseSettings):
 
     # Ollama 本地 LLM 配置
     OLLAMA_BASE_URL: str = "http://localhost:11434"  # Ollama 服务地址
-    LLM_MODEL: str = "glm-4.7-flash"                  # 本地部署的模型名
+    LLM_MODEL: str = "qwen3.5:9b"                  # 本地部署的模型名
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
