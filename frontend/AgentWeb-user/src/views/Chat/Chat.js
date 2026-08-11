@@ -11,6 +11,7 @@ import {
   ERROR_NETWORK,
   SELECTED_MODEL_KEY,
   DEFAULT_MODEL,
+  EMPTY_REPLY,
 } from './Text'
 
 export function useChat() {
@@ -146,6 +147,9 @@ export function useChat() {
         // 流已结束：无论是否有 token 都要清除思考标记（空回复场景兜底），
         // 保证"流结束 = 徽标必消失"这一不变量
         assistantMsg.thinking = false
+        // 流结束时仍无正文（零 token 空回复）：写入占位文案，
+        // 避免用户看到"消息发出后毫无回复"的静默失败
+        if (!assistantMsg.content) assistantMsg.content = EMPTY_REPLY
         clearInterval(renderTimer)
         renderTimer = null
         sending.value = false

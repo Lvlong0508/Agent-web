@@ -278,3 +278,10 @@
   0%, 80%, 100% { opacity: 0; }
   40% { opacity: 1; }
 }
+
+/* 系统设置"减弱动效"时关闭思考点的闪烁动画，尊重无障碍偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .thinking .dot {
+    animation: none;
+  }
+}
