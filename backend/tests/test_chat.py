@@ -85,15 +85,18 @@ async def test_chat_stream_saves_messages(chat_service):
     mock_chunk.content = "你好"
     mock_meta = MagicMock()
 
-    async def fake_astream(*args, **kwargs):
-        """假的 graph.astream：产出 (chunk, metadata) 元组"""
+    graph_input = {}
+
+    async def fake_astream(input, **kwargs):
+        """假的 graph.astream：记录输入并产出 (chunk, metadata) 元组"""
+        graph_input.update(input)
         yield (mock_chunk, mock_meta)
 
     chat_service.graph = MagicMock()
     chat_service.graph.astream = fake_astream
 
     tokens = []
-    async for chunk in chat_service.chat_stream("c1", "hello"):
+    async for chunk in chat_service.chat_stream("c1", "hello", "qwen3.7-flash"):
         tokens.append(chunk)
 
     # 应收到 SSE token 数据和 [DONE]
@@ -101,3 +104,5 @@ async def test_chat_stream_saves_messages(chat_service):
     assert any("[DONE]" in t for t in tokens)
     # user 和 assistant 消息各保存一次
     assert chat_service.msg_repo.create.call_count == 2
+    # model 透传到 agent 图的输入
+    assert graph_input["model"] == "qwen3.7-flash"

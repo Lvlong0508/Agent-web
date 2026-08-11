@@ -8,6 +8,7 @@ from pydantic import BaseModel
 class SendMessageRequest(BaseModel):
     """发送消息请求体"""
     content: str
+    model: str   # 模型选择名（如 ollama-qwen3.5 / qwen3.7-flash）
 
 
 # -------------------- 响应体 --------------------

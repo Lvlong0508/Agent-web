@@ -64,7 +64,7 @@ class ChatService:
     # Agent 图驱动聊天
     # ----------------------------------------------------------------
 
-    async def chat_stream(self, conv_id: str, content: str):
+    async def chat_stream(self, conv_id: str, content: str, model: str):
         """
         核心流程：
         1. 校验对话归属（匿名用户）
@@ -94,7 +94,7 @@ class ChatService:
         # 4. 运行 agent 图，stream_mode="messages" 逐块产出 LLM token
         full_response = ""
         async for chunk, _metadata in self.graph.astream(
-            {"messages": langchain_messages, "conv_id": conv_id},
+            {"messages": langchain_messages, "conv_id": conv_id, "model": model},
             stream_mode="messages",
         ):
             # chunk 是 AIMessageChunk，content 为文本（Ollama 文本模型）
