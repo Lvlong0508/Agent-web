@@ -15,3 +15,6 @@ AGENTS.md
 # backend
 backend/.env
 backend/.env.example
+
+# 学习图片
+*.png
