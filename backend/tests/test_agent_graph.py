@@ -195,3 +195,31 @@ def test_create_llm_default_falls_back_to_ollama():
     assert kwargs["base_url"] == settings.OLLAMA_BASE_URL + "/v1"
     assert kwargs["model"] == settings.LLM_MODEL
     assert kwargs["api_key"] == "ollama"
+
+
+@pytest.mark.asyncio
+async def test_astream_defaults_to_ollama_without_model():
+    """测试输入不含 model 时图内节点缺省回退本地 Ollama"""
+    conv = MagicMock()
+    conv.title = "已有标题"  # 标题已存在，仅验证缺省 model 透传
+    conv_repo = MagicMock()
+    conv_repo.get_by_id = AsyncMock(return_value=conv)
+
+    agent_llm = GenericFakeChatModel(messages=iter([AIMessage(content="默认回复")]))
+
+    received_models = []
+
+    def fake_create_llm(streaming: bool = True, model: str = ""):
+        received_models.append(model)
+        return agent_llm
+
+    graph = build_agent_graph(conv_repo)
+    with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
+        async for _item in graph.astream(
+            {"messages": [HumanMessage(content="hi")], "conv_id": "c1"},
+            stream_mode="messages",
+        ):
+            pass
+
+    # 标题节点 + agent 节点各调用一次 create_llm，且均缺省回退 Ollama 选择名
+    assert received_models == [settings.MODEL_OLLAMA] * 2
