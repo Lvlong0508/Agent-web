@@ -92,23 +92,44 @@ export function useChat() {
     const assistantMsg = { role: 'assistant', content: '' }
     messages.value.push(assistantMsg)
 
+    // 打字机渲染缓冲：token 先攒到 pending，定时器再按帧合并进 content，
+    // 避免一次收到大量 token 时整段一次性渲染
+    let pending = ''
+    let renderTimer = null
+
+    // 把缓冲区的 token 合并进消息内容（每帧调用一次）
+    function flushPending() {
+      if (!pending) return
+      assistantMsg.content += pending
+      pending = ''
+    }
+
     // 传入当前选中的模型（selectedModel.value），由后端决定路由到哪个提供商
     abortController = sendMessageStream(
       activeConvId.value,
       text,
       selectedModel.value,
-      (token) => { assistantMsg.content += token },
+      (token) => { pending += token },
       () => {
+        // 流正常结束：立即渲染剩余 token 并复位状态
+        if (renderTimer) { clearInterval(renderTimer); renderTimer = null }
+        flushPending()
         sending.value = false
         abortController = null
       },
       (errMsg) => {
+        // 出错：先渲染已收到的部分，再显示错误文本
+        if (renderTimer) { clearInterval(renderTimer); renderTimer = null }
+        flushPending()
         error.value = errMsg || ERROR_NETWORK
         assistantMsg.content = assistantMsg.content || ERROR_NETWORK
         sending.value = false
         abortController = null
       },
     )
+
+    // 启动定时器：每 30ms 把 pending 合并进 content，形成逐字打字机效果
+    renderTimer = setInterval(flushPending, 30)
   }
 
   return {
