@@ -1,5 +1,9 @@
 from datetime import datetime
+from typing import Literal
+
 from pydantic import BaseModel
+
+from app.config.settings import settings
 
 
 # -------------------- 请求体 --------------------
@@ -8,7 +12,8 @@ from pydantic import BaseModel
 class SendMessageRequest(BaseModel):
     """发送消息请求体"""
     content: str
-    model: str   # 模型选择名（如 ollama-qwen3.5 / qwen3.7-flash）
+    # 模型选择名：仅允许两个合法值，未传时缺省本地 Ollama（与图内回退设计一致）
+    model: Literal[settings.MODEL_OLLAMA, settings.MODEL_DASHSCOPE_QWEN] = settings.MODEL_OLLAMA
 
 
 # -------------------- 响应体 --------------------
