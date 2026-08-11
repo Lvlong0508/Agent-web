@@ -4,17 +4,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.v1.auth import router as auth_router
 from app.api.v1.chat import router as chat_router
-from app.database import init_db
 from app.middleware.mongodb import MongoDB
 from app.exceptions import AppException
 
 
-# 应用生命周期：启动时自动创建数据库表
+# 应用生命周期：启动时初始化 MongoDB
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()           # 初始化 MySQL
     await MongoDB.connect()   # 初始化 MongoDB
     yield
     await MongoDB.close()     # 关闭 MongoDB
@@ -43,5 +40,4 @@ async def app_exception_handler(request, exc: AppException):
 
 
 # 注册路由模块
-app.include_router(auth_router)
 app.include_router(chat_router)
