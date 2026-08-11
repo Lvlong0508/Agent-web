@@ -95,8 +95,9 @@ export function useChat() {
     messages.value.push({ role: 'user', content: text })
 
     // 用 reactive 创建响应式消息对象：普通对象修改不触发 Vue 渲染，
-    // 会导致 token 一直攒到流结束才一次性显示（整段出现）
-    const assistantMsg = reactive({ role: 'assistant', content: '' })
+    // 会导致 token 一直攒到流结束才一次性显示（整段出现）；
+    // thinking 标记表示"等待首 token 的思考阶段"，正文出现即清除
+    const assistantMsg = reactive({ role: 'assistant', content: '', thinking: true })
     messages.value.push(assistantMsg)
 
     // 打字机渲染缓冲：token 先进队列，定时器每帧取出一个并入 content，
@@ -122,8 +123,9 @@ export function useChat() {
         streamDone = true
       },
       (errMsg) => {
-        // 出错：立即渲染已收到的部分并显示错误文本
+        // 出错：立即渲染已收到的部分并显示错误文本，思考标记一并清除防止卡死
         stopRenderingImmediately()
+        assistantMsg.thinking = false
         error.value = errMsg || ERROR_NETWORK
         assistantMsg.content = assistantMsg.content || ERROR_NETWORK
         sending.value = false
@@ -135,6 +137,8 @@ export function useChat() {
     // 队列已空且流已结束时清除定时器并复位状态
     renderTimer = setInterval(() => {
       if (pending.length) {
+        // 首个 token 到达：思考阶段结束，提示消失（重复置 false 无副作用）
+        assistantMsg.thinking = false
         assistantMsg.content += pending.shift()
         return
       }
