@@ -16,21 +16,24 @@ class AgentState(MessagesState):
 
 def create_llm(streaming: bool = True, model: str = "") -> ChatOpenAI:
     """按模型选择名创建对应 LLM：本地 Ollama 或通义千问（DashScope）"""
-    # 未指定或未知的选择名统一回退本地 Ollama，保证向后兼容
-    if model != settings.MODEL_DASHSCOPE_QWEN:
+    # 通义千问：显式匹配选择名
+    if model == settings.MODEL_DASHSCOPE_QWEN:
+        return ChatOpenAI(
+            model=settings.DASHSCOPE_MODEL,
+            base_url=settings.DASHSCOPE_BASE_URL,
+            api_key=settings.DASHSCOPE_API_KEY,
+            streaming=streaming,
+        )
+    # 缺省（未指定）或 Ollama 选择名：回退本地 Ollama，保证向后兼容
+    if model == "" or model == settings.MODEL_OLLAMA:
         return ChatOpenAI(
             model=settings.LLM_MODEL,
             base_url=settings.OLLAMA_BASE_URL + "/v1",
             api_key="ollama",  # Ollama 不校验 API Key，但 ChatOpenAI 需要此参数
             streaming=streaming,
         )
-    # 通义千问走 DashScope 的 OpenAI 兼容接口，API Key 从环境变量读取
-    return ChatOpenAI(
-        model=settings.DASHSCOPE_MODEL,
-        base_url=settings.DASHSCOPE_BASE_URL,
-        api_key=settings.DASHSCOPE_API_KEY,
-        streaming=streaming,
-    )
+    # 非空未知选择名：显式报错，避免前后端常量漂移时静默用错模型
+    raise ValueError(f"未知的模型选择名: {model!r}")
 
 
 async def _generate_title_if_empty(conv, messages, llm) -> str | None:

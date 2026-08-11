@@ -158,3 +158,20 @@ def test_create_llm_dashscope_model():
     assert kwargs["model"] == settings.DASHSCOPE_MODEL
     assert kwargs["api_key"] == settings.DASHSCOPE_API_KEY
     assert kwargs["streaming"] is False
+
+
+def test_create_llm_unknown_model_raises():
+    """测试非空未知选择名抛 ValueError，避免静默回退掩盖配置漂移"""
+    with pytest.raises(ValueError):
+        create_llm(model="qwen3.7-flsh")  # 拼错的选择名
+
+
+def test_create_llm_default_falls_back_to_ollama():
+    """测试未指定 model 时回退本地 Ollama（向后兼容）"""
+    with patch("app.services.agent_graph.ChatOpenAI") as mock_cls:
+        create_llm(streaming=True)
+    mock_cls.assert_called_once()
+    kwargs = mock_cls.call_args.kwargs
+    assert kwargs["base_url"] == settings.OLLAMA_BASE_URL + "/v1"
+    assert kwargs["model"] == settings.LLM_MODEL
+    assert kwargs["api_key"] == "ollama"
