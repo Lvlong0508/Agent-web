@@ -101,9 +101,10 @@ export function useChat() {
     // 即使一次收到大量 token 也保证逐字显示（不依赖网络分块时机）
     const pending = []
     let renderTimer = null
+    let streamDone = false  // 流是否已结束：结束但队列未空时仍继续逐字渲染
 
-    // 停止渲染：清除定时器，并把剩余 token 一次性合并进消息
-    function stopRendering() {
+    // 出错时立即排空队列并显示错误（错误场景不追求逐字效果）
+    function stopRenderingImmediately() {
       if (renderTimer) { clearInterval(renderTimer); renderTimer = null }
       while (pending.length) assistantMsg.content += pending.shift()
     }
@@ -115,14 +116,12 @@ export function useChat() {
       selectedModel.value,
       (token) => { pending.push(token) },
       () => {
-        // 流正常结束：立即渲染剩余 token 并复位状态
-        stopRendering()
-        sending.value = false
-        abortController = null
+        // 流正常结束：只标记结束，剩余 token 交给定时器逐字渲染完
+        streamDone = true
       },
       (errMsg) => {
-        // 出错：先渲染已收到的部分，再显示错误文本
-        stopRendering()
+        // 出错：立即渲染已收到的部分并显示错误文本
+        stopRenderingImmediately()
         error.value = errMsg || ERROR_NETWORK
         assistantMsg.content = assistantMsg.content || ERROR_NETWORK
         sending.value = false
@@ -130,10 +129,19 @@ export function useChat() {
       },
     )
 
-    // 每帧（30ms）从队列取一个 token 写入消息，形成逐字打字机效果
+    // 每帧（30ms）从队列取一个 token 写入消息，形成逐字打字机效果；
+    // 队列已空且流已结束时清除定时器并复位状态
     renderTimer = setInterval(() => {
-      if (!pending.length) return
-      assistantMsg.content += pending.shift()
+      if (pending.length) {
+        assistantMsg.content += pending.shift()
+        return
+      }
+      if (streamDone) {
+        clearInterval(renderTimer)
+        renderTimer = null
+        sending.value = false
+        abortController = null
+      }
     }, 30)
   }
 
