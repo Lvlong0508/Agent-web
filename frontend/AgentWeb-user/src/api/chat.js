@@ -33,12 +33,13 @@ export function getMessages(convId) {
  * 发送消息并通过 SSE 接收流式回复
  * @param {string} convId - 对话 ID
  * @param {string} content - 消息内容
+ * @param {string} model - 模型标识（如 ollama-qwen3.5 / qwen3.7-flash）
  * @param {function} onToken - 收到每个 token 的回调
  * @param {function} onDone - 流结束回调
  * @param {function} onError - 错误回调
  * @returns {AbortController} - 用于取消请求
  */
-export function sendMessageStream(convId, content, onToken, onDone, onError) {
+export function sendMessageStream(convId, content, model, onToken, onDone, onError) {
   const controller = new AbortController()
 
   fetch(`${BASE_URL}/chat/conversations/${convId}/messages`, {
@@ -46,7 +47,8 @@ export function sendMessageStream(convId, content, onToken, onDone, onError) {
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ content }),
+    // 请求体携带 content 与用户选择的 model，后端据此路由到对应提供商
+    body: JSON.stringify({ content, model }),
     signal: controller.signal,
   }).then(async (response) => {
     if (!response.ok) {

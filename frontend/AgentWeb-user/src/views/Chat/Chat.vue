@@ -2,15 +2,16 @@
 import {
   PLACEHOLDER, SEND, NEW_CHAT, DELETE,
   EMPTY_CONVERSATIONS, EMPTY_CHAT, LOADING,
+  MODEL_OLLAMA_LABEL, MODEL_DASHSCOPE_LABEL,
 } from './Text'
 import { useChat } from './Chat'
 import './Chat.css'
 
 const {
   conversations, activeConvId, loadingList,
-  messages, inputText, sending, error,
+  messages, inputText, sending, error, selectedModel,
   newConversation, selectConversation, removeConversation,
-  sendMessage,
+  sendMessage, onModelChange,
 } = useChat()
 </script>
 
@@ -20,6 +21,13 @@ const {
       <div class="sidebar-header">
         <span>对话</span>
         <button class="btn-new-chat" @click="newConversation">{{ NEW_CHAT }}</button>
+      </div>
+      <!-- 模型选择下拉：切换当前聊天使用的模型，选择会持久化到 localStorage -->
+      <div class="sidebar-model">
+        <select :value="selectedModel" @change="onModelChange">
+          <option value="ollama-qwen3.5">{{ MODEL_OLLAMA_LABEL }}</option>
+          <option value="qwen3.7-flash">{{ MODEL_DASHSCOPE_LABEL }}</option>
+        </select>
       </div>
       <div class="sidebar-list">
         <div v-if="loadingList" class="sidebar-item">{{ LOADING }}</div>

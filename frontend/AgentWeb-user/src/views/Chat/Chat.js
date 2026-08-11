@@ -9,6 +9,8 @@ import {
 import {
   LOADING,
   ERROR_NETWORK,
+  SELECTED_MODEL_KEY,
+  DEFAULT_MODEL,
 } from './Text'
 
 export function useChat() {
@@ -21,6 +23,15 @@ export function useChat() {
   const error = ref('')
 
   let abortController = null
+
+  // 全局模型选择：从 localStorage 读取，缺省本地 Ollama
+  const selectedModel = ref(localStorage.getItem(SELECTED_MODEL_KEY) || DEFAULT_MODEL)
+
+  // 切换模型时更新响应式状态并持久化到 localStorage，刷新后仍保留选择
+  function onModelChange(event) {
+    selectedModel.value = event.target.value
+    localStorage.setItem(SELECTED_MODEL_KEY, selectedModel.value)
+  }
 
   onMounted(async () => {
     loadingList.value = true
@@ -81,9 +92,11 @@ export function useChat() {
     const assistantMsg = { role: 'assistant', content: '' }
     messages.value.push(assistantMsg)
 
+    // 传入当前选中的模型（selectedModel.value），由后端决定路由到哪个提供商
     abortController = sendMessageStream(
       activeConvId.value,
       text,
+      selectedModel.value,
       (token) => { assistantMsg.content += token },
       () => {
         sending.value = false
@@ -100,8 +113,8 @@ export function useChat() {
 
   return {
     conversations, activeConvId, loadingList,
-    messages, inputText, sending, error,
+    messages, inputText, sending, error, selectedModel,
     newConversation, selectConversation, removeConversation,
-    sendMessage,
+    sendMessage, onModelChange,
   }
 }
