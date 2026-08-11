@@ -88,7 +88,12 @@ export function sendMessageStream(convId, content, model, onToken, onDone, onErr
     // 流正常结束（未收到 [DONE] 时也视为完成）
     onDone()
   }).catch((err) => {
-    if (err.name !== 'AbortError') onError(err.message)
+    if (err.name === 'AbortError') {
+      // 用户主动取消：视为正常终止，让调用方清理状态
+      onDone()
+    } else {
+      onError(err.message)
+    }
   })
 
   return controller
