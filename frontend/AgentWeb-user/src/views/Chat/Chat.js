@@ -143,6 +143,9 @@ export function useChat() {
         return
       }
       if (streamDone) {
+        // 流已结束：无论是否有 token 都要清除思考标记（空回复场景兜底），
+        // 保证"流结束 = 徽标必消失"这一不变量
+        assistantMsg.thinking = false
         clearInterval(renderTimer)
         renderTimer = null
         sending.value = false
