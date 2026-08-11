@@ -1,23 +1,23 @@
-import asyncio
 import json
-from datetime import datetime, timezone
 
 from langchain_core.messages import HumanMessage, AIMessage
-from langchain_openai import ChatOpenAI
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.config.settings import settings
 from app.repositories.conversation_repo import ConversationRepo
 from app.repositories.message_repo import MessageRepo
 from app.models.message import Message
+from app.services.agent_graph import build_agent_graph
 
 
 class ChatService:
-    """聊天业务层：串联 MongoDB 数据存取和 LangChain LLM 调用"""
+    """聊天业务层：串联 MongoDB 数据存取和 LangGraph agent 图调用"""
 
-    def __init__(self, db: AsyncIOMotorDatabase):
+    def __init__(self, db: AsyncIOMotorDatabase, graph=None):
         self.conv_repo = ConversationRepo(db)
         self.msg_repo = MessageRepo(db)
+        # 未显式传入时自动构建 agent 图（测试可注入 mock）
+        self.graph = graph or build_agent_graph(self.conv_repo)
 
     # ----------------------------------------------------------------
     # 对话管理
@@ -61,7 +61,7 @@ class ChatService:
         ]
 
     # ----------------------------------------------------------------
-    # LLM 流式聊天
+    # Agent 图驱动聊天
     # ----------------------------------------------------------------
 
     async def chat_stream(self, conv_id: str, content: str):
@@ -70,9 +70,8 @@ class ChatService:
         1. 校验对话归属（匿名用户）
         2. 保存用户消息
         3. 拉取完整历史
-        4. 调用 LangChain astream 逐块产出
+        4. 运行 LangGraph agent 图（generate_title → agent），流式产出 token
         5. 流结束后保存 assistant 消息
-        6. 如果是首条消息，后台异步生成标题
         """
         # 1. 校验对话归属
         conv = await self.conv_repo.get_by_id(conv_id)
@@ -83,7 +82,7 @@ class ChatService:
         user_msg = Message(conversation_id=conv_id, role="user", content=content)
         await self.msg_repo.create(user_msg)
 
-        # 3. 拉取历史消息（含刚保存的用户消息）
+        # 3. 拉取历史消息（含刚保存的用户消息），转为 LangChain 消息
         history = await self.msg_repo.list_by_conversation(conv_id)
         langchain_messages = []
         for m in history:
@@ -92,18 +91,15 @@ class ChatService:
             elif m.role == "assistant":
                 langchain_messages.append(AIMessage(content=m.content))
 
-        # 4. 调用 Ollama（通过 OpenAI 兼容接口）
-        llm = ChatOpenAI(
-            model=settings.LLM_MODEL,
-            base_url=settings.OLLAMA_BASE_URL + "/v1",
-            api_key="ollama",  # Ollama 不校验 API Key，但 ChatOpenAI 需要此参数
-            streaming=True,
-        )
-
+        # 4. 运行 agent 图，stream_mode="messages" 逐块产出 LLM token
         full_response = ""
-        async for chunk in llm.astream(langchain_messages):
-            if chunk.content:
-                token = chunk.content
+        async for chunk, _metadata in self.graph.astream(
+            {"messages": langchain_messages, "conv_id": conv_id},
+            stream_mode="messages",
+        ):
+            # chunk 是 AIMessageChunk，content 为文本（Ollama 文本模型）
+            token = chunk.content if isinstance(chunk.content, str) else ""
+            if token:
                 full_response += token
                 yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
 
@@ -115,28 +111,3 @@ class ChatService:
 
         # 6. 发送结束标志
         yield "data: [DONE]\n\n"
-
-        # 7. 如果是首条完整对话（恰好 2 条消息），后台生成标题
-        if len(history) == 1:  # 只有刚才插入的那条 user 消息
-            asyncio.create_task(self._generate_title(conv_id))
-
-    async def _generate_title(self, conv_id: str):
-        """后台异步生成对话标题，基于首条 user 消息和 LLM 的回复"""
-        try:
-            history = await self.msg_repo.list_by_conversation(conv_id)
-            messages_text = "\n".join(f"{m.role}: {m.content}" for m in history)
-
-            llm = ChatOpenAI(
-                model=settings.LLM_MODEL,
-                base_url=settings.OLLAMA_BASE_URL + "/v1",
-                api_key="ollama",
-            )
-            title_prompt = (
-                f"根据以下对话内容，生成一个简短的对话标题（不超过20个字）：\n\n{messages_text}"
-            )
-            result = await llm.ainvoke([HumanMessage(content=title_prompt)])
-            title = result.content.strip().strip('"\'')
-            await self.conv_repo.update_title(conv_id, title)
-        except Exception as e:
-            # 标题生成失败不影响正常聊天，静默处理
-            print(f"Title generation failed: {e}")

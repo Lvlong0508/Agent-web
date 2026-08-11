@@ -1,8 +1,9 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from langchain_core.messages import AIMessage
+
 from app.models.conversation import Conversation
-from app.models.message import Message
 from app.services.chat_service import ChatService
 
 
@@ -75,57 +76,30 @@ async def test_delete_conversation_unauthorized(chat_service):
 
 @pytest.mark.asyncio
 async def test_chat_stream_saves_messages(chat_service):
-    """测试聊天流会保存 user 和 assistant 消息"""
+    """测试聊天流通过 agent 图产出 token 并保存 user/assistant 消息"""
     conv = Conversation(_id="c1", user_id="anonymous")
     chat_service.conv_repo.get_by_id = AsyncMock(return_value=conv)
     chat_service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
     chat_service.msg_repo.create = AsyncMock(return_value=None)
 
-    # Mock LLM 流式返回
+    # Mock agent 图：用异步生成器模拟 astream 逐块产出 token
     mock_chunk = MagicMock()
     mock_chunk.content = "你好"
+    mock_meta = MagicMock()
 
-    mock_llm = MagicMock()
-    mock_llm.astream.return_value.__aiter__.return_value = [mock_chunk]
+    async def fake_astream(*args, **kwargs):
+        """假的 graph.astream：产出 (chunk, metadata) 元组"""
+        yield (mock_chunk, mock_meta)
 
-    with patch("app.services.chat_service.ChatOpenAI", return_value=mock_llm):
-        tokens = []
-        async for chunk in chat_service.chat_stream("c1", "hello"):
-            tokens.append(chunk)
+    chat_service.graph = MagicMock()
+    chat_service.graph.astream = fake_astream
+
+    tokens = []
+    async for chunk in chat_service.chat_stream("c1", "hello"):
+        tokens.append(chunk)
 
     # 应收到 SSE token 数据和 [DONE]
     assert any("你好" in t for t in tokens)
     assert any("[DONE]" in t for t in tokens)
     # user 和 assistant 消息各保存一次
     assert chat_service.msg_repo.create.call_count == 2
-
-
-@pytest.mark.asyncio
-async def test_title_generation_triggered_on_first_message(chat_service):
-    """测试首条消息会触发后台标题生成"""
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc)
-
-    conv = Conversation(_id="c1", user_id="anonymous", title="")
-    chat_service.conv_repo.get_by_id = AsyncMock(return_value=conv)
-
-    # 模拟已有 1 条 user 消息（刚保存的）
-    chat_service.msg_repo.list_by_conversation = AsyncMock(return_value=[
-        Message(_id="m1", conversation_id="c1", role="user", content="hello", created_at=now),
-    ])
-    chat_service.msg_repo.create = AsyncMock(return_value=None)
-
-    mock_chunk = MagicMock()
-    mock_chunk.content = "你好"
-
-    mock_llm = MagicMock()
-    mock_llm.astream.return_value.__aiter__.return_value = [mock_chunk]
-    # 标题 LLM 调用
-    mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content='"测试标题"'))
-
-    with patch("app.services.chat_service.ChatOpenAI", return_value=mock_llm):
-        with patch("asyncio.create_task") as mock_task:
-            async for _ in chat_service.chat_stream("c1", "hello"):
-                pass
-            # 验证 create_task 被调用（即标题生成被触发）
-            assert mock_task.called
