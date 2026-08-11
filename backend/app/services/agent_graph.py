@@ -14,12 +14,21 @@ class AgentState(MessagesState):
     conv_id: str
 
 
-def create_llm(streaming: bool = True) -> ChatOpenAI:
-    """创建 Ollama 本地 LLM（通过 OpenAI 兼容接口）"""
+def create_llm(streaming: bool = True, model: str = "") -> ChatOpenAI:
+    """按模型选择名创建对应 LLM：本地 Ollama 或通义千问（DashScope）"""
+    # 未指定或未知的选择名统一回退本地 Ollama，保证向后兼容
+    if model != settings.MODEL_DASHSCOPE_QWEN:
+        return ChatOpenAI(
+            model=settings.LLM_MODEL,
+            base_url=settings.OLLAMA_BASE_URL + "/v1",
+            api_key="ollama",  # Ollama 不校验 API Key，但 ChatOpenAI 需要此参数
+            streaming=streaming,
+        )
+    # 通义千问走 DashScope 的 OpenAI 兼容接口，API Key 从环境变量读取
     return ChatOpenAI(
-        model=settings.LLM_MODEL,
-        base_url=settings.OLLAMA_BASE_URL + "/v1",
-        api_key="ollama",  # Ollama 不校验 API Key，但 ChatOpenAI 需要此参数
+        model=settings.DASHSCOPE_MODEL,
+        base_url=settings.DASHSCOPE_BASE_URL,
+        api_key=settings.DASHSCOPE_API_KEY,
         streaming=streaming,
     )
 

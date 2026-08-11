@@ -5,8 +5,10 @@ from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import END
 
+from app.config.settings import settings
 from app.services.agent_graph import (
     build_agent_graph,
+    create_llm,
     should_continue,
     _generate_title_if_empty,
 )
@@ -132,3 +134,27 @@ async def test_title_failure_does_not_block_chat():
 
     # 标题生成失败被静默吞掉，聊天回复不受影响
     assert "仍正常回复" in full_text
+
+
+def test_create_llm_ollama_model():
+    """测试 create_llm 按 ollama-qwen3.5 创建 Ollama 配置的 LLM"""
+    with patch("app.services.agent_graph.ChatOpenAI") as mock_cls:
+        create_llm(streaming=True, model=settings.MODEL_OLLAMA)
+    mock_cls.assert_called_once()
+    kwargs = mock_cls.call_args.kwargs
+    assert kwargs["base_url"] == settings.OLLAMA_BASE_URL + "/v1"
+    assert kwargs["model"] == settings.LLM_MODEL
+    assert kwargs["api_key"] == "ollama"
+    assert kwargs["streaming"] is True
+
+
+def test_create_llm_dashscope_model():
+    """测试 create_llm 按 qwen3.7-flash 创建 DashScope 配置的 LLM"""
+    with patch("app.services.agent_graph.ChatOpenAI") as mock_cls:
+        create_llm(streaming=False, model=settings.MODEL_DASHSCOPE_QWEN)
+    mock_cls.assert_called_once()
+    kwargs = mock_cls.call_args.kwargs
+    assert kwargs["base_url"] == settings.DASHSCOPE_BASE_URL
+    assert kwargs["model"] == settings.DASHSCOPE_MODEL
+    assert kwargs["api_key"] == settings.DASHSCOPE_API_KEY
+    assert kwargs["streaming"] is False
