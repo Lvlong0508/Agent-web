@@ -1,7 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-
-from langchain_core.messages import AIMessage
+from unittest.mock import AsyncMock, MagicMock
 
 from app.models.conversation import Conversation
 from app.services.chat_service import ChatService

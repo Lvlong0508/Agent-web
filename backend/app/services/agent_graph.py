@@ -53,11 +53,15 @@ def build_agent_graph(conv_repo: ConversationRepo):
     # 标题生成节点：标题为空则生成并写回数据库
     async def generate_title_node(state: AgentState) -> dict:
         conv = await conv_repo.get_by_id(state["conv_id"])
-        title = await _generate_title_if_empty(
-            conv, state["messages"], create_llm(streaming=False)
-        )
-        if title:
-            await conv_repo.update_title(state["conv_id"], title)
+        try:
+            title = await _generate_title_if_empty(
+                conv, state["messages"], create_llm(streaming=False)
+            )
+            if title:
+                await conv_repo.update_title(state["conv_id"], title)
+        except Exception:
+            # 标题生成失败不能阻断主聊天流程：静默跳过，回复仍照常产出
+            pass
         return {}
 
     # agent 节点：把全部消息交给 LLM 生成回复（stream_mode 会自动流式输出 token）

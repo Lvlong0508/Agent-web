@@ -1,11 +1,11 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import END
 
 from app.services.agent_graph import (
-    AgentState,
     build_agent_graph,
     should_continue,
     _generate_title_if_empty,
@@ -60,3 +60,75 @@ async def test_generate_title_skipped_when_exists():
     result = await _generate_title_if_empty(conv, [], mock_llm)
     assert result is None
     mock_llm.ainvoke.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_astream_runs_full_graph_with_title_and_tokens():
+    """集成测试：真实跑完整图，验证标题写入数据库 + token 流式产出"""
+    # 标题为空的对话，应触发 generate_title 节点生成标题
+    conv = MagicMock()
+    conv.title = ""
+    conv_repo = MagicMock()
+    conv_repo.get_by_id = AsyncMock(return_value=conv)
+    conv_repo.update_title = AsyncMock(return_value=None)
+
+    # 标题节点和 agent 节点各用一个 fake LLM（通过 streaming 参数区分）
+    title_llm = GenericFakeChatModel(messages=iter([AIMessage(content='"测试标题"')]))
+    agent_llm = GenericFakeChatModel(messages=iter([AIMessage(content="你好，世界")]))
+
+    def fake_create_llm(streaming: bool = True):
+        return title_llm if not streaming else agent_llm
+
+    graph = build_agent_graph(conv_repo)
+    full_text = ""
+    with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
+        async for item in graph.astream(
+            {"messages": [HumanMessage(content="hi")], "conv_id": "c1"},
+            stream_mode="messages",
+        ):
+            if isinstance(item, tuple):
+                chunk, _meta = item
+                if isinstance(chunk.content, str):
+                    full_text += chunk.content
+
+    # 标题已通过 generate_title 节点写入数据库
+    conv_repo.update_title.assert_awaited_once_with("c1", "测试标题")
+    # agent 节点的回复以 token 形式流式拼出
+    assert "你好，世界" in full_text
+
+
+@pytest.mark.asyncio
+async def test_title_failure_does_not_block_chat():
+    """标题 LLM 抛异常时不应阻断聊天：agent 节点仍应正常产出回复"""
+    conv = MagicMock()
+    conv.title = ""
+    conv_repo = MagicMock()
+    conv_repo.get_by_id = AsyncMock(return_value=conv)
+    conv_repo.update_title = AsyncMock(return_value=None)
+
+    # 标题 LLM 模拟 Ollama 故障（抛连接错误）
+    title_llm = MagicMock()
+
+    async def boom(*args, **kwargs):
+        raise ConnectionError("Ollama down")
+
+    title_llm.ainvoke = boom
+    agent_llm = GenericFakeChatModel(messages=iter([AIMessage(content="仍正常回复")]))
+
+    def fake_create_llm(streaming: bool = True):
+        return title_llm if not streaming else agent_llm
+
+    graph = build_agent_graph(conv_repo)
+    full_text = ""
+    with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
+        async for item in graph.astream(
+            {"messages": [HumanMessage(content="hi")], "conv_id": "c1"},
+            stream_mode="messages",
+        ):
+            if isinstance(item, tuple):
+                chunk, _meta = item
+                if isinstance(chunk.content, str):
+                    full_text += chunk.content
+
+    # 标题生成失败被静默吞掉，聊天回复不受影响
+    assert "仍正常回复" in full_text

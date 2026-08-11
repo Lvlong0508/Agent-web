@@ -17,4 +17,5 @@ backend/.env
 backend/.env.example
 
 # 学习图片
-*.png
+LangChain与LangGraph对比图.png
+LangGraph流程图.png
