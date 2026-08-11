@@ -5,11 +5,6 @@ import http from './index'
 // API 基础地址（与 http 实例保持同步）
 const BASE_URL = 'http://localhost:8000'
 
-// 从 localStorage 获取 Bearer Token
-function getToken() {
-  return localStorage.getItem('access_token')
-}
-
 // --- 对话 CRUD（使用 axios）---
 
 // 创建新对话
@@ -50,7 +45,6 @@ export function sendMessageStream(convId, content, onToken, onDone, onError) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${getToken()}`,
     },
     body: JSON.stringify({ content }),
     signal: controller.signal,
