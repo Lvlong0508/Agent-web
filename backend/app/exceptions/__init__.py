@@ -9,36 +9,6 @@ class AppException(Exception):
         self.status_code = status_code
 
 
-# 409 用户名或邮箱已存在
-class UserExistsError(AppException):
-    def __init__(self, field: str):
-        super().__init__(
-            detail=f"{field} already exists",
-            code="USER_EXISTS",
-            status_code=409,
-        )
-
-
-# 401 用户名或密码错误
-class InvalidCredentialsError(AppException):
-    def __init__(self):
-        super().__init__(
-            detail="Invalid username or password",
-            code="INVALID_CREDENTIALS",
-            status_code=401,
-        )
-
-
-# 401 未认证或 Token 无效
-class UnauthorizedError(AppException):
-    def __init__(self, detail: str = "Not authenticated"):
-        super().__init__(
-            detail=detail,
-            code="UNAUTHORIZED",
-            status_code=401,
-        )
-
-
 # 404 资源不存在
 class NotFoundError(AppException):
     def __init__(self, entity: str = "Resource"):
