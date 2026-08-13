@@ -1,4 +1,4 @@
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import {
   listConversations,
   createConversation,
@@ -13,6 +13,7 @@ import {
   DEFAULT_MODEL,
   THINKING_MODE_KEY,
   EMPTY_REPLY,
+  VOICE_UNSUPPORTED,
 } from './Text'
 
 export function useChat() {
@@ -24,6 +25,24 @@ export function useChat() {
   const sending = ref(false)
   const error = ref('')
 
+  // 会话搜索关键字：只在本地过滤列表，不改动后端数据
+  const searchQuery = ref('')
+
+  // 侧边栏折叠状态：默认展开，点击标题栏按钮收起/展开，收起后主区占满
+  const sidebarCollapsed = ref(false)
+
+  // 切换侧边栏展开/收起状态
+  function toggleSidebar() {
+    sidebarCollapsed.value = !sidebarCollapsed.value
+  }
+
+  // 消息滚动容器 DOM 引用与"回到底部"按钮显隐状态
+  const scrollContainer = ref(null)
+  const showScrollBtn = ref(false)
+
+  // 语音输入状态：按住空格开始识别，松开结束
+  const listening = ref(false)
+
   let abortController = null
 
   // 全局模型选择：从 localStorage 读取，缺省本地 Ollama
@@ -32,10 +51,23 @@ export function useChat() {
   // 深度思考开关：从 localStorage 读取，默认关闭（加速回复流式输出）
   const thinking = ref(localStorage.getItem(THINKING_MODE_KEY) === 'true')
 
-  // 切换模型时更新响应式状态并持久化到 localStorage，刷新后仍保留选择
-  function onModelChange(event) {
-    selectedModel.value = event.target.value
-    localStorage.setItem(SELECTED_MODEL_KEY, selectedModel.value)
+  // 当前会话标题：用于页面顶部展示，会话删除后回退为空
+  const currentTitle = computed(() => {
+    const conv = conversations.value.find(c => c.id === activeConvId.value)
+    return conv ? conv.title : ''
+  })
+
+  // 过滤后的会话列表：搜索框为空时原样返回，否则按标题模糊匹配
+  const filteredConversations = computed(() => {
+    const q = searchQuery.value.trim().toLowerCase()
+    if (!q) return conversations.value
+    return conversations.value.filter(c => (c.title || '').toLowerCase().includes(q))
+  })
+
+  // 切换模型：更新响应式状态并持久化到 localStorage，刷新后仍保留选择
+  function onModelPick(model) {
+    selectedModel.value = model
+    localStorage.setItem(SELECTED_MODEL_KEY, model)
   }
 
   // 切换思考模式：更新响应式状态并持久化，下次发送消息时随请求体传给后端
@@ -44,7 +76,89 @@ export function useChat() {
     localStorage.setItem(THINKING_MODE_KEY, String(thinking.value))
   }
 
+  // 判断当前滚动位置是否接近底部（120px 视为已到底部附近）
+  function nearBottom() {
+    const el = scrollContainer.value
+    if (!el) return true
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 120
+  }
+
+  // 平滑滚动到消息区底部：先重置位置再平滑滚动，兼容窄内容容器
+  function scrollToBottom() {
+    const el = scrollContainer.value
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }
+
+  // 滚动事件：离开底部时显示"回到底部"按钮，回到底部自动隐藏
+  function onScroll() {
+    showScrollBtn.value = !nearBottom()
+  }
+
+  // 新消息产生后自动滚动到底部（仅当用户本就在底部时，避免打扰上翻阅读）
+  watch(messages, async () => {
+    if (nearBottom()) {
+      await nextTick()
+      scrollToBottom()
+    }
+  })
+
+  // 语音识别：优先用浏览器原生 Web Speech API，不支持则静默降级为纯文本
+  let recognition = null
+  let speechFinal = ''
+  let voiceWarned = false
+
+  function initRecognition() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) return
+    recognition = new SR()
+    recognition.lang = 'zh-CN'
+    recognition.continuous = true
+    recognition.interimResults = true
+    // 识别结果实时回填输入框：最终结果累积，临时结果做占位预览
+    recognition.onresult = (e) => {
+      let interim = ''
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) speechFinal += e.results[i][0].transcript
+        else interim += e.results[i][0].transcript
+      }
+      inputText.value = speechFinal + interim
+    }
+    // 识别结束（手动停止或异常中断）时复位状态
+    recognition.onend = () => {
+      listening.value = false
+    }
+  }
+
+  // 全局键盘监听：焦点不在输入框时按住空格即可说话，避免干扰打字
+  function onGlobalKeyDown(e) {
+    const tag = e.target && e.target.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'BUTTON') return
+    if (e.code === 'Space' && !e.repeat) {
+      e.preventDefault()
+      if (recognition) {
+        speechFinal = ''
+        listening.value = true
+        recognition.start()
+      } else if (!voiceWarned) {
+        // 浏览器不支持语音时只提示一次，避免每次按空格都报错
+        voiceWarned = true
+        error.value = VOICE_UNSUPPORTED
+      }
+    }
+  }
+
+  function onGlobalKeyUp(e) {
+    if (e.code === 'Space' && listening.value && recognition) {
+      recognition.stop()
+      listening.value = false
+    }
+  }
+
   onMounted(async () => {
+    initRecognition()
+    window.addEventListener('keydown', onGlobalKeyDown)
+    window.addEventListener('keyup', onGlobalKeyUp)
     loadingList.value = true
     try {
       const res = await listConversations()
@@ -54,9 +168,12 @@ export function useChat() {
     }
   })
 
-  // 组件卸载时取消进行中的流，避免定时器与请求泄漏
+  // 组件卸载时取消进行中的流、停止语音识别并移除全局键盘监听
   onUnmounted(() => {
     if (abortController) abortController.abort()
+    if (recognition) recognition.abort()
+    window.removeEventListener('keydown', onGlobalKeyDown)
+    window.removeEventListener('keyup', onGlobalKeyUp)
   })
 
   async function newConversation() {
@@ -107,8 +224,9 @@ export function useChat() {
 
     // 用 reactive 创建响应式消息对象：普通对象修改不触发 Vue 渲染，
     // 会导致 token 一直攒到流结束才一次性显示（整段出现）；
-    // thinking 标记表示"等待首 token 的思考阶段"，正文出现即清除
-    const assistantMsg = reactive({ role: 'assistant', content: '', thinking: true })
+    // thinking 标记表示"等待首 token 的思考阶段"，正文出现即清除；
+    // thinkSeconds 为思考阶段已等待的秒数，用于"正在思考"倒计时提示
+    const assistantMsg = reactive({ role: 'assistant', content: '', thinking: true, thinkSeconds: 0 })
     messages.value.push(assistantMsg)
 
     // 打字机渲染缓冲：token 先进队列，定时器每帧取出一个并入 content，
@@ -116,10 +234,17 @@ export function useChat() {
     const pending = []
     let renderTimer = null
     let streamDone = false  // 流是否已结束：结束但队列未空时仍继续逐字渲染
+    let thinkTimer = null   // 思考倒计时定时器：每秒为 thinking 中的消息 +1s
+
+    // 思考倒计时：进入思考阶段后每秒累加，等待时长可视化
+    thinkTimer = setInterval(() => {
+      if (assistantMsg.thinking) assistantMsg.thinkSeconds += 1
+    }, 1000)
 
     // 出错时立即排空队列并显示错误（错误场景不追求逐字效果）
     function stopRenderingImmediately() {
       if (renderTimer) { clearInterval(renderTimer); renderTimer = null }
+      if (thinkTimer) { clearInterval(thinkTimer); thinkTimer = null }
       while (pending.length) assistantMsg.content += pending.shift()
     }
 
@@ -155,8 +280,9 @@ export function useChat() {
     // 队列已空且流已结束时清除定时器并复位状态
     renderTimer = setInterval(() => {
       if (pending.length) {
-        // 首个 token 到达：思考阶段结束，提示消失（重复置 false 无副作用）
+        // 首个 token 到达：思考阶段结束，提示与倒计时一并清除（重复置 false 无副作用）
         assistantMsg.thinking = false
+        if (thinkTimer) { clearInterval(thinkTimer); thinkTimer = null }
         assistantMsg.content += pending.shift()
         return
       }
@@ -164,6 +290,7 @@ export function useChat() {
         // 流已结束：无论是否有 token 都要清除思考标记（空回复场景兜底），
         // 保证"流结束 = 徽标必消失"这一不变量
         assistantMsg.thinking = false
+        if (thinkTimer) { clearInterval(thinkTimer); thinkTimer = null }
         // 流结束时仍无正文（零 token 空回复）：写入占位文案，
         // 避免用户看到"消息发出后毫无回复"的静默失败
         if (!assistantMsg.content) assistantMsg.content = EMPTY_REPLY
@@ -179,7 +306,11 @@ export function useChat() {
     conversations, activeConvId, loadingList,
     messages, inputText, sending, error, selectedModel,
     thinking, toggleThinking,
+    searchQuery, filteredConversations, currentTitle,
+    showScrollBtn, listening, scrollContainer,
+    sidebarCollapsed, toggleSidebar,
+    scrollToBottom, onScroll,
     newConversation, selectConversation, removeConversation,
-    sendMessage, onModelChange,
+    sendMessage, onModelPick,
   }
 }

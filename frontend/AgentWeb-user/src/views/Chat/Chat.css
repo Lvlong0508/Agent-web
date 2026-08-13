@@ -1,297 +1,353 @@
+/* ===== Apple 风格配色变量（浅色、纯色、克制的蓝色强调） ===== */
 .chat-page {
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --surface-2: #f2f2f7;
+  --text-primary: #1d1d1f;
+  --text-secondary: #86868b;
+  --accent: #007aff;
+  --accent-soft: rgba(0, 122, 255, 0.12);
+  --separator: #e5e5ea;
+  --danger: #ff3b30;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 2px 12px rgba(0, 0, 0, 0.06);
+
   display: flex;
-  height: calc(100vh - 56px);
-  margin-top: 56px;
-  background: #fff;
+  height: 100vh;
+  padding-top: 56px;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+    "Helvetica Neue", "Microsoft YaHei", sans-serif;
 }
 
+/* ===== 侧边栏 ===== */
 .chat-sidebar {
-  width: 280px;
-  border-right: 1px solid #e4e6eb;
+  width: 300px;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
+  gap: 12px;
+  padding: 16px 12px;
+  background: var(--surface);
+  border-right: 1px solid var(--separator);
+  overflow: hidden;
+  transition: width 0.25s ease, padding 0.25s ease, border-color 0.25s ease;
 }
 
-.sidebar-header {
-  padding: 16px;
+/* 收起状态：宽度与内边距归零，主区随之占满整个视口 */
+.chat-page.sidebar-hidden .chat-sidebar {
+  width: 0;
+  padding: 0;
+  border-right-color: transparent;
+}
+
+/* 搜索框：浅灰圆角底，带放大镜图标 */
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-radius: 12px;
+  color: var(--text-secondary);
+}
+
+.search-box:focus-within {
+  color: var(--accent);
+}
+
+.search-box input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  color: var(--text-primary);
+  font-family: inherit;
+}
+
+.search-box input::placeholder {
+  color: var(--text-secondary);
+}
+
+/* 操作区：模型分段控件 + 新建对话按钮 */
+.sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* 模型选择下拉：隐藏原生箭头并绘制灰色三角，白底细边框与标题栏同风格，
+   悬停/聚焦时给浅灰底和蓝色光晕反馈 */
+.model-select {
+  flex-shrink: 0;
+  width: 160px;
+  padding: 6px 28px 6px 12px;
+  border: 1px solid var(--separator);
+  border-radius: 10px;
+  background-color: var(--surface);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2386868b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: background-color 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+.model-select:hover {
+  background-color: var(--surface-2);
+}
+
+.model-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* 新建对话：浅灰次级按钮，与侧边栏其他控件风格一致（不再用蓝色强调） */
+.btn-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 0;
+  border: 1px solid var(--separator);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+
+.btn-new:hover {
+  background: #ececf0;
+}
+
+.btn-new:active {
+  transform: scale(0.98);
+}
+
+.btn-new .plus {
   font-size: 16px;
-  font-weight: 600;
-  color: #333;
-  border-bottom: 1px solid #e4e6eb;
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* 会话分区标题与列表 */
+.sidebar-section-title {
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .sidebar-list {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .sidebar-item {
-  padding: 12px;
-  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
   cursor: pointer;
-  transition: background 0.2s;
-  color: #666;
-  font-size: 14px;
+  transition: background 0.15s;
 }
 
 .sidebar-item:hover {
-  background: #f0f2f5;
-}
-
-.chat-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.chat-messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  width: 100%;
-  max-width: 800px;
-  margin: 0 auto;
-}
-
-/* 消息包裹层：负责对齐，thinking 标签位于气泡上方 */
-.msg-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.msg-wrap.user {
-  align-items: flex-end;
-}
-
-.msg-wrap.assistant {
-  align-items: flex-start;
-}
-
-.message {
-  max-width: 70%;
-  padding: 10px 16px;
-  border-radius: 12px;
-  font-size: 14px;
-  line-height: 1.5;
-  word-wrap: break-word;
-}
-
-.message.user {
-  background: #1a73e8;
-  color: #fff;
-  border-bottom-right-radius: 4px;
-}
-
-.message.assistant {
-  background: #f0f2f5;
-  color: #333;
-  border-bottom-left-radius: 4px;
-}
-
-.empty-state {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #999;
-  font-size: 14px;
-}
-
-.chat-input-area {
-  padding: 16px 24px;
-  border-top: 1px solid #e4e6eb;
-  display: flex;
-  gap: 12px;
-  align-items: flex-end;
-  width: 100%;
-  max-width: 800px;
-  margin: 0 auto;
-}
-
-.chat-input {
-  flex: 1;
-  min-height: 44px;
-  max-height: 120px;
-  padding: 10px 16px;
-  border: 1px solid #e4e6eb;
-  border-radius: 22px;
-  font-size: 14px;
-  outline: none;
-  resize: none;
-  font-family: inherit;
-  transition: border-color 0.2s;
-}
-
-.chat-input:focus {
-  border-color: #1a73e8;
-}
-
-.send-btn {
-  width: 44px;
-  height: 44px;
-  border: none;
-  border-radius: 50%;
-  background: #1a73e8;
-  color: #fff;
-  font-size: 16px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.2s;
-  flex-shrink: 0;
-}
-
-.send-btn:hover {
-  background: #1557b0;
-}
-
-.send-btn:disabled {
-  background: #ccc;
-  cursor: not-allowed;
-}
-
-/* 对话列表增强 */
-.sidebar-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.btn-new-chat {
-  padding: 4px 12px;
-  border: 1px solid #1a73e8;
-  border-radius: 14px;
-  background: transparent;
-  color: #1a73e8;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn-new-chat:hover {
-  background: #1a73e8;
-  color: #fff;
-}
-
-.sidebar-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  background: var(--surface-2);
 }
 
 .sidebar-item.active {
-  background: #e8f0fe;
-  color: #1a73e8;
+  background: var(--accent);
+  color: #fff;
+}
+
+.sidebar-item.active .btn-delete {
+  color: #fff;
 }
 
 .conv-title {
   flex: 1;
+  font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .btn-delete {
+  flex-shrink: 0;
   width: 20px;
   height: 20px;
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: #999;
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1;
   cursor: pointer;
-  font-size: 14px;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
 }
 
 .sidebar-item:hover .btn-delete {
-  display: flex;
+  opacity: 1;
 }
 
 .btn-delete:hover {
-  background: #fee;
-  color: #e74c3c;
+  background: rgba(255, 59, 48, 0.15);
+  color: var(--danger);
 }
 
-/* 错误消息 */
-.message.error {
-  align-self: center;
-  background: #fff3f3;
-  color: #e74c3c;
+.sidebar-empty {
+  padding: 20px 8px;
+  text-align: center;
+  color: var(--text-secondary);
   font-size: 13px;
-  max-width: 100%;
 }
 
-/* 模型选择下拉 */
-.sidebar-model {
-  padding: 8px 16px;
-  border-bottom: 1px solid #e4e6eb;
+/* ===== 主区 ===== */
+.chat-main {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  position: relative;
+  /* 固定布局：内容超出视口时裁切而非压缩，避免产生横向滚动条 */
+  overflow: hidden;
 }
 
-.sidebar-model select {
-  width: 100%;
-  padding: 6px 8px;
-  border: 1px solid #e4e6eb;
-  border-radius: 8px;
-  font-size: 13px;
-  color: #333;
-  background: #fff;
-  outline: none;
+/* 顶部标题栏：白底（与侧边栏一致）加细分隔线，标题绝对定位实现真正居中 */
+.chat-header {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 24px 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--separator);
+}
+
+/* 左侧按钮组：收起按钮 + 模型下拉，水平排列 */
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* 收起/展开侧边栏按钮：白底圆形浅灰图标按钮 */
+.sidebar-toggle {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--separator);
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, color 0.2s;
 }
 
-.sidebar-model select:hover {
-  border-color: #1a73e8;
+.sidebar-toggle:hover {
+  background: #ececf0;
+  color: var(--text-primary);
 }
 
-/* 深度思考开关：未开启为描边按钮，开启后填充高亮，并随发送中禁用 */
-.btn-thinking {
-  padding: 4px 12px;
-  border: 1px solid #e4e6eb;
-  border-radius: 14px;
-  background: transparent;
-  color: #666;
+/* 标题弹性区：绝对定位在标题栏正中间，不随两侧控件宽度变化偏移 */
+.header-center {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 60%;
+  text-align: center;
+  pointer-events: none;
+}
+
+.chat-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-subtitle {
+  display: block;
+  margin-top: 4px;
   font-size: 12px;
-  cursor: pointer;
-  transition: all 0.2s;
-  align-self: flex-start;
+  color: var(--text-secondary);
 }
 
-.btn-thinking:hover {
-  border-color: #1a73e8;
-  color: #1a73e8;
+/* 空状态 */
+.empty-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  font-size: 14px;
 }
 
-.btn-thinking.on {
-  background: #1a73e8;
-  border-color: #1a73e8;
-  color: #fff;
+/* 消息区：内部滚动容器，固定布局内容裁切不产生横向滚动条 */
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px 0 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
-.btn-thinking:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+/* 消息列：固定 760px 宽，不随窗口缩放自适应；窗口更小时右侧裁切不可见 */
+.msg-wrap {
+  width: 760px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex-shrink: 0;
 }
 
-/* 思考阶段提示：浅灰小字 + 三个循环闪烁的点 */
+.msg-wrap.user {
+  align-items: flex-end;
+}
+
+/* 思考阶段提示：左上角浅灰小字 + 已等待秒数 + 闪烁点 */
 .thinking {
-  font-size: 12px;
-  color: #999;
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.thinking .dots {
+  display: inline-flex;
 }
 
 .thinking .dot {
@@ -309,6 +365,207 @@
 @keyframes thinking-blink {
   0%, 80%, 100% { opacity: 0; }
   40% { opacity: 1; }
+}
+
+/* 消息气泡：助手白底、用户蓝底，单侧小圆角做成"气泡尾巴" */
+.message {
+  max-width: 100%;
+  padding: 12px 16px;
+  border-radius: 18px;
+  font-size: 15px;
+  line-height: 1.65;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.message.assistant {
+  background: var(--surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+  border-bottom-left-radius: 6px;
+}
+
+.message.user {
+  background: var(--accent);
+  color: #fff;
+  border-bottom-right-radius: 6px;
+}
+
+.message.error {
+  background: var(--surface);
+  color: var(--danger);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ===== 底部输入坞 ===== */
+.input-dock {
+  position: relative;
+  padding: 12px 0 20px;
+}
+
+/* "回到底部"悬浮按钮：居中贴输入框上方 */
+.scroll-bottom {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% - 2px);
+  transform: translateX(-50%);
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--separator);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s, transform 0.2s;
+}
+
+.scroll-bottom:hover {
+  color: var(--text-primary);
+  transform: translateX(-50%) translateY(-2px);
+}
+
+.chat-input-area {
+  width: 760px;
+  flex-shrink: 0;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* 输入框容器：大圆角白底纵向布局（输入框 + 底部工具行），
+   聚焦时蓝色描边光晕 */
+.input-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 14px 6px 18px;
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  border-radius: 26px;
+  box-shadow: var(--shadow-md);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.input-box:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.chat-input {
+  width: 100%;
+  min-height: 24px;
+  max-height: 120px;
+  padding: 2px 0;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  font-family: inherit;
+}
+
+.chat-input::placeholder {
+  color: var(--text-secondary);
+}
+
+/* 发送按钮：胶囊形小按钮，与深度思考同一工具行、靠右对齐 */
+.send-btn {
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: filter 0.2s, opacity 0.2s;
+}
+
+.send-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.send-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* 输入框内嵌工具行：深度思考等功能按钮靠左、发送按钮靠右（同一水平区域） */
+.input-inner-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 2px 2px;
+}
+
+.tool-spacer {
+  flex: 1;
+}
+
+.tool-btn {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.tool-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+
+.tool-btn.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tool-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 滚动条美化：Apple 风格细滚动条，thumb 半透明圆角、悬停加深，轨道透明 */
+.sidebar-list,
+.chat-messages {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+
+.sidebar-list::-webkit-scrollbar,
+.chat-messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-list::-webkit-scrollbar-track,
+.chat-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-list::-webkit-scrollbar-thumb,
+.chat-messages::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 3px;
+}
+
+.sidebar-list::-webkit-scrollbar-thumb:hover,
+.chat-messages::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.32);
 }
 
 /* 系统设置"减弱动效"时关闭思考点的闪烁动画，尊重无障碍偏好 */
