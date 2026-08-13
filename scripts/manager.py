@@ -5,8 +5,8 @@ import time
 import signal
 import sys
 
-# 项目根目录（根据脚本位置自动确定）
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+# 项目根目录（manager.py 在 scripts 目录下，其上一级才是项目根）
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 后端与前端路径
 BACKEND_DIR = os.path.join(ROOT_DIR, "backend")

@@ -1,6 +1,8 @@
 """网页版服务管理器 - 进程管理核心逻辑测试"""
 import sys
 import os
+import subprocess
+import time
 
 # 将 scripts 目录加入模块搜索路径，才能 import manager_web
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -46,9 +48,18 @@ def test_start_twice_returns_not_ok():
 def test_stop_when_running():
     """运行中停止应返回 ok=True 且状态变为已停止"""
     manager_web.start("backend")
+    pid = manager_web.get_status("backend")["pid"]
     result = manager_web.stop("backend")
     assert result["ok"] is True
     assert manager_web.get_status("backend")["running"] is False
+    # 用 tasklist 确认该 PID 已从系统中消失，验证进程树被真正清理
+    out = subprocess.run(
+        f'tasklist /fi "PID eq {pid}" /nh',
+        shell=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert str(pid) not in out
 
 
 def test_stop_when_not_running_returns_not_ok():
@@ -75,3 +86,18 @@ def test_start_unknown_service_raises():
     """未知服务名应抛出 ValueError"""
     with pytest.raises(ValueError):
         manager_web.start("database")
+
+
+def test_start_after_process_exited(monkeypatch):
+    """前一个进程已退出后再次 start 应成功（poll 守卫正确识别死进程）"""
+    # 临时把 backend 命令换成立即退出的 FAKE_SHORT，否则要等 sleep 60 才退出
+    monkeypatch.setitem(manager_web.SERVICE_COMMANDS, "backend", FAKE_SHORT)
+    manager_web.start("backend")
+    # FAKE_SHORT 立即打印后退出，轮询等待其结束
+    deadline = time.time() + 5
+    while manager_web.processes["backend"] and manager_web.processes["backend"].poll() is None:
+        if time.time() > deadline:
+            break
+        time.sleep(0.1)
+    result = manager_web.start("backend")
+    assert result["ok"] is True

@@ -3,16 +3,12 @@
 职责：在浏览器中管理项目的前后端服务（启动/停止/重启）并实时查看日志。
 独立运行在 127.0.0.1:8001，不干扰业务后端(8000)与 Vite(5173)。
 """
-import os
 import subprocess
 import threading
 import time
 from collections import deque
 
 from manager import BACKEND_CMD, FRONTEND_CMD  # 复用终端版的启动命令
-
-# 项目根目录（manager.py 在 scripts 下，其父目录即项目根）
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 各服务的启动命令
 SERVICE_COMMANDS = {
@@ -114,17 +110,35 @@ def start(name):
     return {"ok": True, "message": f"{name} 已启动 (PID: {proc.pid})"}
 
 
+def _kill_tree(pid):
+    """递归杀掉以 pid 为根的整棵进程树
+
+    Windows 下 shell=True 启动的实际是 cmd.exe 中间层，仅 terminate 只杀
+    cmd.exe，真正的服务子进程会成为孤儿继续占用端口，必须用 taskkill /t
+    把整棵树一并清除。
+    """
+    subprocess.run(
+        f"taskkill /f /t /pid {pid}",
+        shell=True,
+        capture_output=True,
+    )
+
+
 def stop(name):
     """停止指定服务；未运行则返回友好提示"""
     proc = processes.get(name)
     if not proc or proc.poll() is not None:
         return {"ok": False, "message": f"{name} 未在运行"}
 
-    proc.terminate()
+    pid = proc.pid
+    # 必须先杀树再终止：若根进程已退出，taskkill /t 将找不到其后代
+    # 子进程，孤儿会残留。根进程存活时枚举树，后代才能一并被清除。
+    _kill_tree(pid)
     try:
+        # 根进程被 taskkill 清除后 wait 立即返回
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        # 5 秒内未退出则强制结束，与 manager.py 行为一致
+        # 极端情况根进程未随树退出，则强制结束
         proc.kill()
     processes[name] = None
     started_at[name] = None
