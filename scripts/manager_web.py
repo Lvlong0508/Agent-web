@@ -31,17 +31,21 @@ class LogBuffer:
     def __init__(self, maxlen=2000):
         # deque(maxlen) 满了会自动丢弃最旧的行，防止内存无限增长
         self._lines = deque(maxlen=maxlen)
+        # 累计写入的行数（含被 maxlen 淘汰的行），作为单调递增的日志序号
+        self._count = 0
         self._lock = threading.Lock()
 
     def append(self, line):
         """追加一行日志"""
         with self._lock:
             self._lines.append(line)
+            self._count += 1
 
     def clear(self):
-        """清空缓冲区（服务重启时调用）"""
+        """清空缓冲区（服务重启时调用），序号同步归零"""
         with self._lock:
             self._lines.clear()
+            self._count = 0
 
     def all_lines(self):
         """返回全部历史日志"""
@@ -49,18 +53,22 @@ class LogBuffer:
             return list(self._lines)
 
     def lines_from(self, start_index):
-        """返回从 start_index 开始的增量日志与当前总行数
+        """返回 start_index 之后的增量日志与当前累计行数
 
-        调用方记住返回的总行数作为下一次的 start_index 即可实现增量读取。
+        序号语义：每 append 一行累计计数加一。缓冲区满淘汰旧行不影响序号，
+        因此即使总行数不再增长，调用方仍能凭序号拿到新日志。
         """
         with self._lock:
             lines = list(self._lines)
-        # 若 start_index 对应位置已超出当前范围，回退到最早的可用位置
-        if start_index < 0:
-            start_index = 0
-        if start_index > len(lines):
-            start_index = 0
-        return lines[start_index:], len(lines)
+            total = self._count
+        # 当前缓冲里第一行对应的序号
+        earliest = total - len(lines)
+        # 若客户端序号已落后于被淘汰的行，回退到最早可用位置（全量重发）
+        if start_index < earliest:
+            start_index = earliest
+        # 在 lines 中的偏移 = start_index 与 earliest 的差值
+        offset = start_index - earliest
+        return lines[offset:], total
 
 
 def _ensure_buffer(name):
@@ -87,7 +95,8 @@ async def event_stream(name):
     无新日志时发送注释心跳行，保持连接不断。
     """
     if name not in SERVICE_COMMANDS:
-        raise KeyError(f"未知服务: {name}")
+        # 与 start/stop 保持一致的异常类型，方便前端统一捕获
+        raise ValueError(f"未知服务: {name}")
 
     buf = _ensure_buffer(name)
     total = 0  # 记录已推送到的总行数

@@ -1,4 +1,5 @@
 """网页版服务管理器 - 进程管理核心逻辑测试"""
+import asyncio
 import sys
 import os
 import subprocess
@@ -103,9 +104,6 @@ def test_start_after_process_exited(monkeypatch):
     assert result["ok"] is True
 
 
-import asyncio
-
-
 def test_log_buffer_append_and_all_lines():
     """日志缓冲区应能追加并返回全部行"""
     buf = manager_web.LogBuffer()
@@ -128,6 +126,20 @@ def test_log_buffer_maxlen_evicts_oldest():
     for i in range(5):
         buf.append(f"line{i}")
     assert buf.all_lines() == ["line2", "line3", "line4"]
+
+
+def test_log_buffer_full_no_stall():
+    """缓冲区满后增量读取仍能继续（回归：序号停滞导致日志冻结）"""
+    buf = manager_web.LogBuffer(maxlen=3)
+    for i in range(3):
+        buf.append(f"line{i}")
+    new_lines, total = buf.lines_from(0)
+    assert new_lines == ["line0", "line1", "line2"] and total == 3
+    # 继续写入超过 maxlen，total 序号仍在增长
+    buf.append("line3")
+    buf.append("line4")
+    new_lines, total = buf.lines_from(total)
+    assert new_lines == ["line3", "line4"] and total == 5
 
 
 def test_log_buffer_lines_from_incremental():
@@ -159,10 +171,14 @@ def test_event_stream_sends_history():
 
 
 def test_event_stream_unknown_service_raises():
-    """未知服务的日志流应抛 KeyError"""
+    """未知服务的日志流应抛 ValueError（与 start/stop 一致）"""
     async def collect():
         stream = manager_web.event_stream("database")
-        await anext(stream)
+        try:
+            await anext(stream)
+        finally:
+            # 无论是否抛错都关闭生成器，避免资源泄漏
+            await stream.aclose()
 
-    with pytest.raises(KeyError):
+    with pytest.raises(ValueError):
         asyncio.run(collect())
