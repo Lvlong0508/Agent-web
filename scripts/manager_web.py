@@ -4,6 +4,7 @@
 独立运行在 127.0.0.1:8001，不干扰业务后端(8000)与 Vite(5173)。
 """
 import asyncio
+import os
 import subprocess
 import threading
 import time
@@ -64,8 +65,11 @@ class LogBuffer:
             total = self._count
         # 当前缓冲里第一行对应的序号
         earliest = total - len(lines)
-        # 若客户端序号已落后于被淘汰的行，回退到最早可用位置（全量重发）
+        # 若客户端序号落后于被淘汰的行，回退到最早可用位置（全量重发）
         if start_index < earliest:
+            start_index = earliest
+        # 若客户端序号超前于 total（服务重启清空缓冲区后旧连接），同样回退全量重发
+        if start_index > total:
             start_index = earliest
         # 在 lines 中的偏移 = start_index 与 earliest 的差值
         offset = start_index - earliest
@@ -133,6 +137,8 @@ def start(name):
         encoding="utf-8",
         errors="replace",  # 避免个别非 UTF-8 字节导致读取崩溃
         bufsize=1,
+        # Windows 下子进程 stdout 走管道时默认用 GBK 编码，强制 utf-8 避免中文乱码
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
     )
     processes[name] = proc
     started_at[name] = time.time()
@@ -200,6 +206,7 @@ def get_status(name):
     return {"name": name, "running": False, "pid": None, "elapsed": 0}
 
 
+# FastAPI 相关导入放在中部：让文件顶部先展示纯进程管理逻辑，便于初学者逐段理解
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 
@@ -379,8 +386,13 @@ async def api_status():
 
 
 @app.post("/api/{action}/{name}")
-async def api_control(action: str, name: str):
-    """启停/重启接口：action 为 start|stop|restart"""
+def api_control(action: str, name: str):
+    """启停/重启接口：action 为 start|stop|restart
+
+    用普通 def 而非 async def：stop/restart 内含 taskkill 子进程与
+    time.sleep 等阻塞调用，async 端点会把事件循环卡住，使 SSE 心跳与
+    状态轮询短暂冻结；普通 def 由 FastAPI 放入线程池执行，互不干扰。
+    """
     if name not in SERVICE_COMMANDS:
         raise HTTPException(status_code=404, detail=f"未知服务: {name}")
     if action == "start":

@@ -154,6 +154,19 @@ def test_log_buffer_lines_from_incremental():
     assert new_lines == ["c"] and total == 3
 
 
+def test_log_buffer_lines_from_resync_after_clear():
+    """服务重启清空缓冲区后，持有旧序号的客户端应能重新拿到新日志"""
+    buf = manager_web.LogBuffer(maxlen=10)
+    for i in range(3):
+        buf.append(f"old{i}")
+    _, old_total = buf.lines_from(0)  # 模拟客户端消费到 3
+    buf.clear()  # 模拟服务重启清空
+    buf.append("new1")
+    buf.append("new2")
+    new_lines, total = buf.lines_from(old_total)
+    assert new_lines == ["new1", "new2"] and total == 2
+
+
 def test_event_stream_sends_history():
     """SSE 生成器第一条消息应是历史日志 data 行"""
     buf = manager_web._ensure_buffer("backend")
