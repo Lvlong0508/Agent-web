@@ -3,6 +3,7 @@
 职责：在浏览器中管理项目的前后端服务（启动/停止/重启）并实时查看日志。
 独立运行在 127.0.0.1:8001，不干扰业务后端(8000)与 Vite(5173)。
 """
+import asyncio
 import subprocess
 import threading
 import time
@@ -77,6 +78,29 @@ def _read_output(proc, name):
             # strip 掉末尾换行，避免日志区出现多余空行
             buf.append(line.strip())
     proc.stdout.close()
+
+
+async def event_stream(name):
+    """SSE 异步生成器：先推全部历史日志，之后每 0.5 秒推送增量
+
+    每次迭代产出一条 SSE 格式消息（data: 内容\n\n）。
+    无新日志时发送注释心跳行，保持连接不断。
+    """
+    if name not in SERVICE_COMMANDS:
+        raise KeyError(f"未知服务: {name}")
+
+    buf = _ensure_buffer(name)
+    total = 0  # 记录已推送到的总行数
+    while True:
+        new_lines, total = buf.lines_from(total)
+        if new_lines:
+            for line in new_lines:
+                yield f"data: {line}\n\n"
+        else:
+            # SSE 心跳：空注释行，避免连接被中间设备超时断开
+            yield ": keep-alive\n\n"
+        # 让出事件循环，避免阻塞其他请求；0.5 秒对本地单用户足够实时
+        await asyncio.sleep(0.5)
 
 
 def start(name):

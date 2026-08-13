@@ -101,3 +101,68 @@ def test_start_after_process_exited(monkeypatch):
         time.sleep(0.1)
     result = manager_web.start("backend")
     assert result["ok"] is True
+
+
+import asyncio
+
+
+def test_log_buffer_append_and_all_lines():
+    """日志缓冲区应能追加并返回全部行"""
+    buf = manager_web.LogBuffer()
+    buf.append("line1")
+    buf.append("line2")
+    assert buf.all_lines() == ["line1", "line2"]
+
+
+def test_log_buffer_clear():
+    """clear 后缓冲区应为空"""
+    buf = manager_web.LogBuffer()
+    buf.append("line1")
+    buf.clear()
+    assert buf.all_lines() == []
+
+
+def test_log_buffer_maxlen_evicts_oldest():
+    """超过 maxlen 时最旧的行被丢弃"""
+    buf = manager_web.LogBuffer(maxlen=3)
+    for i in range(5):
+        buf.append(f"line{i}")
+    assert buf.all_lines() == ["line2", "line3", "line4"]
+
+
+def test_log_buffer_lines_from_incremental():
+    """lines_from 应返回增量行并给出新的总行数"""
+    buf = manager_web.LogBuffer()
+    buf.append("a")
+    buf.append("b")
+    new_lines, total = buf.lines_from(0)
+    assert new_lines == ["a", "b"] and total == 2
+    buf.append("c")
+    new_lines, total = buf.lines_from(total)
+    assert new_lines == ["c"] and total == 3
+
+
+def test_event_stream_sends_history():
+    """SSE 生成器第一条消息应是历史日志 data 行"""
+    buf = manager_web._ensure_buffer("backend")
+    buf.clear()
+    buf.append("hello-from-fake")
+
+    async def collect_first():
+        stream = manager_web.event_stream("backend")
+        first = await anext(stream)
+        await stream.aclose()
+        return first
+
+    first = asyncio.run(collect_first())
+    assert first == "data: hello-from-fake\n\n"
+
+
+def test_event_stream_unknown_service_raises():
+    """未知服务的日志流应抛 KeyError"""
+    async def collect():
+        stream = manager_web.event_stream("database")
+        await anext(stream)
+
+    with pytest.raises(KeyError):
+        asyncio.run(collect())
