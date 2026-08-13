@@ -11,6 +11,14 @@ class Settings(BaseSettings):
     MONGODB_URI: str
     MONGODB_DB_NAME: str
 
+    # MySQL 连接配置（SQLAlchemy async，账号仅授权 agent-web 库）
+    # 凭据（用户名/密码）不设默认值：必须从 .env 读取，避免敏感信息出现在代码中
+    MYSQL_HOST: str = "localhost"
+    MYSQL_PORT: int = 3306
+    MYSQL_USER: str
+    MYSQL_PASSWORD: str
+    MYSQL_DB_NAME: str = "agent-web"
+
     # Ollama 本地 LLM 配置
     OLLAMA_BASE_URL: str = "http://localhost:11434"  # Ollama 服务地址
     LLM_MODEL: str = "qwen3.5:9b"                  # 本地部署的模型名
