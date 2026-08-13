@@ -1,6 +1,6 @@
 import json
 
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.config.settings import settings
@@ -8,6 +8,7 @@ from app.repositories.conversation_repo import ConversationRepo
 from app.repositories.message_repo import MessageRepo
 from app.models.message import Message
 from app.services.agent_graph import build_agent_graph
+from app.services.prompts import SYSTEM_PROMPT
 
 
 class ChatService:
@@ -86,7 +87,9 @@ class ChatService:
 
         # 3. 拉取历史消息（含刚保存的用户消息），转为 LangChain 消息
         history = await self.msg_repo.list_by_conversation(conv_id)
-        langchain_messages = [] # 上下文窗口
+        # 上下文窗口：系统提示词只在这里注入一次、排在最前；
+        # 历史消息只存 user/assistant 角色，因此不会重复添加
+        langchain_messages = [SystemMessage(content=SYSTEM_PROMPT)]
         for m in history:
             if m.role == "user":
                 langchain_messages.append(HumanMessage(content=m.content))

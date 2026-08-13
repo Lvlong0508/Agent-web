@@ -7,6 +7,7 @@ from langgraph.prebuilt import ToolNode
 
 from app.config.settings import settings
 from app.repositories.conversation_repo import ConversationRepo
+from app.services.prompts import build_title_prompt
 
 
 class AgentState(MessagesState):
@@ -68,11 +69,9 @@ async def _generate_title_if_empty(conv, messages, llm) -> str | None:
     if conv and conv.title:
         return None
 
-    # 把消息拼成文本，交给 LLM 生成简短标题
+    # 把消息拼成文本，交给提示词模块生成标题提示词（模板统一维护在 prompts 包）
     messages_text = "\n".join(f"{m.type}: {m.content}" for m in messages)
-    title_prompt = (
-        f"根据以下对话内容，生成一个简短的对话标题（不超过20个字）：\n\n{messages_text}"
-    )
+    title_prompt = build_title_prompt(messages_text)
     result = await llm.ainvoke([HumanMessage(content=title_prompt)])
     return result.content.strip().strip('"\'')
 
@@ -115,7 +114,8 @@ def build_agent_graph(conv_repo: ConversationRepo):
         # 监听此字段，一旦非空就通过 SSE 把标题实时推给前端侧边栏
         return {"generated_title": title or ""}
 
-    # agent 节点：把全部消息交给 LLM 生成回复（stream_mode 会自动流式输出 token）
+    # agent 节点：把消息流（已含系统提示词）交给 LLM 生成回复
+    # （stream_mode 会自动流式输出 token）
     async def agent_node(state: AgentState) -> dict:
         # thinking 开关（缺省 False=关闭）：通义千问开启思考时首 token 要等十几秒，
         # 默认关掉保证回复快速流式输出，用户可在前端按钮手动开启
@@ -125,6 +125,7 @@ def build_agent_graph(conv_repo: ConversationRepo):
         ).ainvoke(state["messages"])
         return {"messages": [response]}
 
+    # 系统提示词由 chat_service 在构造入口状态时前置注入，见 chat_service._run_graph
     # 构造节点node
     graph = StateGraph(AgentState)
     graph.add_node("generate_title", generate_title_node)

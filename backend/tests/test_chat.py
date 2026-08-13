@@ -1,11 +1,13 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
+from langchain_core.messages import SystemMessage
 from pydantic import ValidationError
 
 from app.config.settings import settings
 from app.models.conversation import Conversation
 from app.schemas.chat import SendMessageRequest
 from app.services.chat_service import ChatService
+from app.services.prompts import SYSTEM_PROMPT
 
 
 @pytest.fixture
@@ -113,6 +115,43 @@ async def test_chat_stream_saves_messages(chat_service):
     assert chat_service.msg_repo.create.call_count == 2
     # model 透传到 agent 图的输入
     assert graph_input["model"] == settings.MODEL_DASHSCOPE_QWEN
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_prepends_system_prompt(chat_service):
+    """测试系统提示词在入口状态最前面注入一次（小励角色设定）"""
+    from app.models.message import Message
+
+    conv = Conversation(_id="c1", user_id="anonymous")
+    chat_service.conv_repo.get_by_id = AsyncMock(return_value=conv)
+    # 历史消息包含刚保存的用户消息（真实流程：save 后 list 会带回）
+    chat_service.msg_repo.list_by_conversation = AsyncMock(return_value=[
+        Message(conversation_id="c1", role="user", content="hello"),
+    ])
+    chat_service.msg_repo.create = AsyncMock(return_value=None)
+
+    mock_chunk = MagicMock()
+    mock_chunk.content = "回复"
+    mock_meta = {"langgraph_node": "agent"}
+    graph_input = {}
+
+    async def fake_astream(input, **kwargs):
+        """假的 graph.astream：记录输入并产出 (模式, 数据) 元组"""
+        graph_input.update(input)
+        yield ("messages", (mock_chunk, mock_meta))
+
+    chat_service.graph = MagicMock()
+    chat_service.graph.astream = fake_astream
+
+    tokens = []
+    async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_OLLAMA):
+        tokens.append(chunk)
+
+    # 注入到图的消息流：第一条是系统提示词，随后才是用户消息
+    messages = graph_input["messages"]
+    assert isinstance(messages[0], SystemMessage)
+    assert messages[0].content == SYSTEM_PROMPT
+    assert messages[1].content == "hello"
 
 
 @pytest.mark.asyncio
