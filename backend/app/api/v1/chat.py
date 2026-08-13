@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.middleware.mongodb import get_db
+from app.middleware.mysql import SessionLocal  # 会话工厂：传给 ChatService 供 agent 工具开会话
 from app.services.chat_service import ChatService
 from app.schemas.chat import (
     SendMessageRequest,
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 async def create_conversation(
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
-    service = ChatService(db)
+    service = ChatService(db, session_factory=SessionLocal)
     return await service.create_conversation()
 
 
@@ -31,7 +32,7 @@ async def create_conversation(
 async def list_conversations(
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
-    service = ChatService(db)
+    service = ChatService(db, session_factory=SessionLocal)
     return await service.list_conversations()
 
 
@@ -41,7 +42,7 @@ async def delete_conversation(
     conv_id: str,
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
-    service = ChatService(db)
+    service = ChatService(db, session_factory=SessionLocal)
     await service.delete_conversation(conv_id)
     return DeleteResponse()
 
@@ -52,7 +53,7 @@ async def get_messages(
     conv_id: str,
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
-    service = ChatService(db)
+    service = ChatService(db, session_factory=SessionLocal)
     return await service.get_messages(conv_id)
 
 
@@ -63,7 +64,7 @@ async def send_message(
     body: SendMessageRequest,
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
-    service = ChatService(db)
+    service = ChatService(db, session_factory=SessionLocal)
     return StreamingResponse(
         service.chat_stream(conv_id, body.content, body.model, body.thinking),
         media_type="text/event-stream",

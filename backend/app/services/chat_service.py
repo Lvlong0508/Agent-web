@@ -9,16 +9,19 @@ from app.repositories.message_repo import MessageRepo
 from app.models.message import Message
 from app.services.agent_graph import build_agent_graph
 from app.services.prompts import SYSTEM_PROMPT
+from app.tools import get_tools
 
 
 class ChatService:
     """聊天业务层：串联 MongoDB 数据存取和 LangGraph agent 图调用"""
 
-    def __init__(self, db: AsyncIOMotorDatabase, graph=None):
+    def __init__(self, db: AsyncIOMotorDatabase, graph=None, session_factory=None):
         self.conv_repo = ConversationRepo(db)
         self.msg_repo = MessageRepo(db)
-        # 未显式传入时自动构建 agent 图（测试可注入 mock）
-        self.graph = graph or build_agent_graph(self.conv_repo)
+        # 未显式传入时自动构建 agent 图（测试可注入 mock）；
+        # 传入 session_factory 则给图绑定 MySQL 账单工具，让 agent 能调用
+        tools = get_tools(session_factory) if session_factory else []
+        self.graph = graph or build_agent_graph(self.conv_repo, tools=tools)
 
     # ----------------------------------------------------------------
     # 对话管理

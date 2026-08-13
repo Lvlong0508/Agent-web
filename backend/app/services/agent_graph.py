@@ -84,8 +84,9 @@ def should_continue(state: AgentState) -> Literal["tools", END]:
     return END
 
 
-def build_agent_graph(conv_repo: ConversationRepo):
+def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
     """构建 agent 骨架图：generate_title → agent →（条件边）→ tools/END"""
+    tools = tools or []
 
     # 标题生成节点：标题为空则生成并写回数据库，新标题放入状态供上层推送前端
     async def generate_title_node(state: AgentState) -> dict:
@@ -119,10 +120,16 @@ def build_agent_graph(conv_repo: ConversationRepo):
     async def agent_node(state: AgentState) -> dict:
         # thinking 开关（缺省 False=关闭）：通义千问开启思考时首 token 要等十几秒，
         # 默认关掉保证回复快速流式输出，用户可在前端按钮手动开启
-        response = await create_llm(
+        llm = create_llm(
             model=state.get("model") or settings.MODEL_OLLAMA,
             enable_thinking=state.get("thinking", False),
-        ).ainvoke(state["messages"])
+        )
+        # 只在绑定了工具时才 bind_tools：空列表绑定对不支持工具的消息模型会报错
+        if tools:
+            # bind_tools 把工具 schema 暴露给 LLM，它才能在回复中发起工具调用；
+            # 随后条件边 should_continue 检测到 tool_calls 就走 tools 节点执行
+            llm = llm.bind_tools(tools)
+        response = await llm.ainvoke(state["messages"])
         return {"messages": [response]}
 
     # 系统提示词由 chat_service 在构造入口状态时前置注入，见 chat_service._run_graph
@@ -130,7 +137,7 @@ def build_agent_graph(conv_repo: ConversationRepo):
     graph = StateGraph(AgentState)
     graph.add_node("generate_title", generate_title_node)
     graph.add_node("agent", agent_node)
-    graph.add_node("tools", ToolNode([]))  # 骨架阶段空工具，将来在此注册工具
+    graph.add_node("tools", ToolNode(tools))  # 工具执行节点：条件边命中时运行工具
     # fan-out 并行：标题生成与回复生成互不依赖，同时启动。
     # 若串行（generate_title → agent），标题 LLM 完整生成完才轮到回复流式输出，
     # 首条回复会被标题生成拖慢数秒；并行后回复立即开始流式输出，
