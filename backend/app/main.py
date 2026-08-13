@@ -6,13 +6,18 @@ from fastapi.responses import JSONResponse
 
 from app.api.v1.chat import router as chat_router
 from app.middleware.mongodb import MongoDB
+from app.middleware.mysql import Base, engine
 from app.exceptions import AppException
+import app.models.expense  # noqa: F401  导入模型让 Base.metadata 注册 expenses 表
 
 
-# 应用生命周期：启动时初始化 MongoDB
+# 应用生命周期：启动时初始化 MongoDB 并自动创建 MySQL 表
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await MongoDB.connect()   # 初始化 MongoDB
+    # 自动建表：expenses 表不存在时创建（含索引），已存在则跳过
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     yield
     await MongoDB.close()     # 关闭 MongoDB
 
