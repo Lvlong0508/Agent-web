@@ -236,6 +236,9 @@
 .sidebar-model {
   padding: 8px 16px;
   border-bottom: 1px solid #e4e6eb;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .sidebar-model select {
@@ -252,6 +255,35 @@
 
 .sidebar-model select:hover {
   border-color: #1a73e8;
+}
+
+/* 深度思考开关：未开启为描边按钮，开启后填充高亮，并随发送中禁用 */
+.btn-thinking {
+  padding: 4px 12px;
+  border: 1px solid #e4e6eb;
+  border-radius: 14px;
+  background: transparent;
+  color: #666;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  align-self: flex-start;
+}
+
+.btn-thinking:hover {
+  border-color: #1a73e8;
+  color: #1a73e8;
+}
+
+.btn-thinking.on {
+  background: #1a73e8;
+  border-color: #1a73e8;
+  color: #fff;
+}
+
+.btn-thinking:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* 思考阶段提示：浅灰小字 + 三个循环闪烁的点 */

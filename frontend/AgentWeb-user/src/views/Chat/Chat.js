@@ -11,6 +11,7 @@ import {
   ERROR_NETWORK,
   SELECTED_MODEL_KEY,
   DEFAULT_MODEL,
+  THINKING_MODE_KEY,
   EMPTY_REPLY,
 } from './Text'
 
@@ -28,10 +29,19 @@ export function useChat() {
   // 全局模型选择：从 localStorage 读取，缺省本地 Ollama
   const selectedModel = ref(localStorage.getItem(SELECTED_MODEL_KEY) || DEFAULT_MODEL)
 
+  // 深度思考开关：从 localStorage 读取，默认关闭（加速回复流式输出）
+  const thinking = ref(localStorage.getItem(THINKING_MODE_KEY) === 'true')
+
   // 切换模型时更新响应式状态并持久化到 localStorage，刷新后仍保留选择
   function onModelChange(event) {
     selectedModel.value = event.target.value
     localStorage.setItem(SELECTED_MODEL_KEY, selectedModel.value)
+  }
+
+  // 切换思考模式：更新响应式状态并持久化，下次发送消息时随请求体传给后端
+  function toggleThinking() {
+    thinking.value = !thinking.value
+    localStorage.setItem(THINKING_MODE_KEY, String(thinking.value))
   }
 
   onMounted(async () => {
@@ -118,7 +128,14 @@ export function useChat() {
       activeConvId.value,
       text,
       selectedModel.value,
+      thinking.value,
       (token) => { pending.push(token) },
+      (title) => {
+        // 首条消息后后端会生成对话标题并实时推送：就地更新侧边栏对应会话，
+        // 无需用户手动刷新页面（conversations 是深响应式的，改 title 即触发重渲染）
+        const conv = conversations.value.find(c => c.id === activeConvId.value)
+        if (conv) conv.title = title
+      },
       () => {
         // 流正常结束：只标记结束，剩余 token 交给定时器逐字渲染完
         streamDone = true
@@ -161,6 +178,7 @@ export function useChat() {
   return {
     conversations, activeConvId, loadingList,
     messages, inputText, sending, error, selectedModel,
+    thinking, toggleThinking,
     newConversation, selectConversation, removeConversation,
     sendMessage, onModelChange,
   }

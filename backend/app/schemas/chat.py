@@ -14,6 +14,8 @@ class SendMessageRequest(BaseModel):
     content: str
     # 模型选择名：仅允许两个合法值，未传时缺省本地 Ollama（与图内回退设计一致）
     model: Literal[settings.MODEL_OLLAMA, settings.MODEL_DASHSCOPE_QWEN] = settings.MODEL_OLLAMA
+    # 深度思考开关（仅通义千问生效）：默认关闭，加快回复流式输出；开启后更深入但更慢
+    thinking: bool = False
 
 
 # -------------------- 响应体 --------------------

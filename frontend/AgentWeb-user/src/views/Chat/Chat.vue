@@ -3,6 +3,7 @@ import {
   PLACEHOLDER, SEND, NEW_CHAT, DELETE,
   EMPTY_CONVERSATIONS, EMPTY_CHAT, LOADING,
   MODEL_OLLAMA_LABEL, MODEL_DASHSCOPE_LABEL,
+  THINKING_MODE_LABEL,
   THINKING,
 } from './Text'
 import { useChat } from './Chat'
@@ -11,6 +12,7 @@ import './Chat.css'
 const {
   conversations, activeConvId, loadingList,
   messages, inputText, sending, error, selectedModel,
+  thinking, toggleThinking,
   newConversation, selectConversation, removeConversation,
   sendMessage, onModelChange,
 } = useChat()
@@ -29,6 +31,15 @@ const {
           <option value="ollama-qwen3.5">{{ MODEL_OLLAMA_LABEL }}</option>
           <option value="qwen3.7-flash">{{ MODEL_DASHSCOPE_LABEL }}</option>
         </select>
+        <!-- 深度思考开关：只影响回复生成（标题永远快速生成），选择会持久化到 localStorage -->
+        <button
+          class="btn-thinking"
+          :class="{ on: thinking }"
+          :disabled="sending"
+          @click="toggleThinking"
+        >
+          {{ THINKING_MODE_LABEL }}
+        </button>
       </div>
       <div class="sidebar-list">
         <div v-if="loadingList" class="sidebar-item">{{ LOADING }}</div>

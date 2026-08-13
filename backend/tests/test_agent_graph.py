@@ -81,7 +81,7 @@ async def test_astream_runs_full_graph_with_title_and_tokens():
     # 记录图内节点创建 LLM 时传入的 model 选择名，用于验证透传
     received_models = []
 
-    def fake_create_llm(streaming: bool = True, model: str = ""):
+    def fake_create_llm(streaming: bool = True, model: str = "", enable_thinking: bool = True, max_tokens: int | None = None):
         received_models.append(model)
         return title_llm if not streaming else agent_llm
 
@@ -103,10 +103,12 @@ async def test_astream_runs_full_graph_with_title_and_tokens():
 
     # 标题已通过 generate_title 节点写入数据库
     conv_repo.update_title.assert_awaited_once_with("c1", "测试标题")
-    # agent 节点的回复以 token 形式流式拼出
+    # agent 节点的回复以 token 形式流式拼出（messages 流还包含标题 token，不影响）
     assert "你好，世界" in full_text
-    # 图内节点应按所选模型创建 LLM（标题节点 + agent 节点各调用一次）
-    assert received_models == [settings.MODEL_DASHSCOPE_QWEN] * 2
+    # 图内节点应按所选模型创建 LLM（标题节点 + agent 节点各调用一次）。
+    # 注意：两节点是并行 fan-out，谁先调用 create_llm 顺序不固定，只校验次数与取值
+    assert len(received_models) == 2
+    assert all(m == settings.MODEL_DASHSCOPE_QWEN for m in received_models)
 
 
 @pytest.mark.asyncio
@@ -130,7 +132,7 @@ async def test_title_failure_does_not_block_chat():
     # 记录图内节点创建 LLM 时传入的 model 选择名，用于验证透传
     received_models = []
 
-    def fake_create_llm(streaming: bool = True, model: str = ""):
+    def fake_create_llm(streaming: bool = True, model: str = "", enable_thinking: bool = True, max_tokens: int | None = None):
         received_models.append(model)
         return title_llm if not streaming else agent_llm
 
@@ -152,8 +154,44 @@ async def test_title_failure_does_not_block_chat():
 
     # 标题生成失败被静默吞掉，聊天回复不受影响
     assert "仍正常回复" in full_text
-    # 图内节点应按所选模型创建 LLM（标题节点 + agent 节点各调用一次）
-    assert received_models == [settings.MODEL_DASHSCOPE_QWEN] * 2
+    # 图内节点应按所选模型创建 LLM（标题节点 + agent 节点各调用一次）。
+    # 并行 fan-out 下调用顺序不固定，只校验次数与取值
+    assert len(received_models) == 2
+    assert all(m == settings.MODEL_DASHSCOPE_QWEN for m in received_models)
+
+
+@pytest.mark.asyncio
+async def test_generate_title_node_exposes_title_in_updates():
+    """测试 generate_title 节点把新标题写回状态，可用 stream_mode='updates' 实时取到"""
+    conv = MagicMock()
+    conv.title = ""
+    conv_repo = MagicMock()
+    conv_repo.get_by_id = AsyncMock(return_value=conv)
+    conv_repo.update_title = AsyncMock(return_value=None)
+
+    title_llm = GenericFakeChatModel(messages=iter([AIMessage(content='"集成标题"')]))
+    agent_llm = GenericFakeChatModel(messages=iter([AIMessage(content="回复内容")]))
+
+    def fake_create_llm(streaming: bool = True, model: str = "", enable_thinking: bool = True, max_tokens: int | None = None):
+        return title_llm if not streaming else agent_llm
+
+    graph = build_agent_graph(conv_repo)
+    updates = []
+    with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
+        async for mode, data in graph.astream(
+            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "model": settings.MODEL_OLLAMA},
+            stream_mode=["messages", "updates"],
+        ):
+            if mode == "updates":
+                updates.append(data)
+
+    # generate_title 节点产出的标题能通过 updates 模式被上层拿到（供 SSE 推送前端）
+    assert any(
+        u.get("generate_title", {}).get("generated_title") == "集成标题"
+        for u in updates
+    )
+    # 标题仍按原逻辑写入数据库
+    conv_repo.update_title.assert_awaited_once_with("c1", "集成标题")
 
 
 def test_create_llm_ollama_model():
@@ -180,10 +218,112 @@ def test_create_llm_dashscope_model():
     assert kwargs["streaming"] is False
 
 
+def test_create_llm_dashscope_disables_thinking_for_title():
+    """测试标题场景：关闭思考模式并限制 max_tokens，让标题秒回不被思考拖慢"""
+    with patch("app.services.agent_graph.ChatOpenAI") as mock_cls:
+        create_llm(
+            streaming=False,
+            model=settings.MODEL_DASHSCOPE_QWEN,
+            enable_thinking=False,
+            max_tokens=100,
+        )
+    kwargs = mock_cls.call_args.kwargs
+    assert kwargs["max_tokens"] == 100
+    # DashScope 兼容模式通过 extra_body 关闭思考
+    assert kwargs["extra_body"] == {"enable_thinking": False}
+
+
+def test_create_llm_ollama_ignores_thinking_params():
+    """测试 Ollama 分支不受思考参数影响：不传 extra_body / max_tokens"""
+    with patch("app.services.agent_graph.ChatOpenAI") as mock_cls:
+        create_llm(
+            streaming=True,
+            model=settings.MODEL_OLLAMA,
+            enable_thinking=False,
+            max_tokens=100,
+        )
+    kwargs = mock_cls.call_args.kwargs
+    assert kwargs["base_url"] == settings.OLLAMA_BASE_URL + "/v1"
+    assert kwargs["model"] == settings.LLM_MODEL
+    assert "extra_body" not in kwargs
+    assert "max_tokens" not in kwargs
+
+
 def test_create_llm_unknown_model_raises():
     """测试非空未知选择名抛 ValueError，避免静默回退掩盖配置漂移"""
     with pytest.raises(ValueError):
         create_llm(model="qwen3.7-flsh")  # 拼错的选择名
+
+
+@pytest.mark.asyncio
+async def test_agent_node_thinking_switch():
+    """测试 thinking 开关只传给 agent 节点；标题节点无论开关如何都固定关闭思考"""
+    conv = MagicMock()
+    conv.title = ""
+    conv_repo = MagicMock()
+    conv_repo.get_by_id = AsyncMock(return_value=conv)
+    conv_repo.update_title = AsyncMock(return_value=None)
+
+    title_llm = GenericFakeChatModel(messages=iter([AIMessage(content='"标题"')]))
+    agent_llm = GenericFakeChatModel(messages=iter([AIMessage(content="回复")]))
+
+    received = []
+
+    def fake_create_llm(streaming=True, model="", enable_thinking=True, max_tokens=None):
+        received.append({"streaming": streaming, "enable_thinking": enable_thinking})
+        return title_llm if not streaming else agent_llm
+
+    graph = build_agent_graph(conv_repo)
+    with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
+        async for _item in graph.astream(
+            {
+                "messages": [HumanMessage(content="hi")],
+                "conv_id": "c1",
+                "model": settings.MODEL_DASHSCOPE_QWEN,
+                "thinking": True,  # 用户在前端开启了深度思考
+            },
+            stream_mode="messages",
+        ):
+            pass
+
+    # 并行 fan-out 下调用顺序不固定，按 streaming 区分两个节点的调用
+    title_calls = [r for r in received if not r["streaming"]]
+    agent_calls = [r for r in received if r["streaming"]]
+    # 标题节点：无论 thinking 开关如何，都关闭思考（保证标题秒回、先于内容）
+    assert len(title_calls) == 1
+    assert title_calls[0]["enable_thinking"] is False
+    # agent 节点：开启思考时 enable_thinking=True
+    assert len(agent_calls) == 1
+    assert agent_calls[0]["enable_thinking"] is True
+
+
+@pytest.mark.asyncio
+async def test_agent_node_thinking_defaults_off():
+    """测试缺省（输入不含 thinking）时 agent 节点思考模式默认关闭"""
+    conv = MagicMock()
+    conv.title = "已有标题"
+    conv_repo = MagicMock()
+    conv_repo.get_by_id = AsyncMock(return_value=conv)
+
+    agent_llm = GenericFakeChatModel(messages=iter([AIMessage(content="回复")]))
+
+    received = []
+
+    def fake_create_llm(streaming=True, model="", enable_thinking=True, max_tokens=None):
+        received.append({"streaming": streaming, "enable_thinking": enable_thinking})
+        return agent_llm
+
+    graph = build_agent_graph(conv_repo)
+    with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
+        async for _item in graph.astream(
+            {"messages": [HumanMessage(content="hi")], "conv_id": "c1"},
+            stream_mode="messages",
+        ):
+            pass
+
+    agent_calls = [r for r in received if r["streaming"]]
+    assert len(agent_calls) == 1
+    assert agent_calls[0]["enable_thinking"] is False
 
 
 def test_create_llm_default_falls_back_to_ollama():
@@ -209,7 +349,7 @@ async def test_astream_defaults_to_ollama_without_model():
 
     received_models = []
 
-    def fake_create_llm(streaming: bool = True, model: str = ""):
+    def fake_create_llm(streaming: bool = True, model: str = "", enable_thinking: bool = True, max_tokens: int | None = None):
         received_models.append(model)
         return agent_llm
 
@@ -221,5 +361,7 @@ async def test_astream_defaults_to_ollama_without_model():
         ):
             pass
 
-    # 标题节点 + agent 节点各调用一次 create_llm，且均缺省回退 Ollama 选择名
-    assert received_models == [settings.MODEL_OLLAMA] * 2
+    # 标题节点 + agent 节点各调用一次 create_llm，且均缺省回退 Ollama 选择名。
+    # 并行 fan-out 下调用顺序不固定，只校验次数与取值
+    assert len(received_models) == 2
+    assert all(m == settings.MODEL_OLLAMA for m in received_models)

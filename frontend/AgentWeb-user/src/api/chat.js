@@ -34,12 +34,14 @@ export function getMessages(convId) {
  * @param {string} convId - 对话 ID
  * @param {string} content - 消息内容
  * @param {string} model - 模型标识（如 ollama-qwen3.5 / qwen3.7-flash）
+ * @param {boolean} thinking - 是否开启深度思考（仅通义千问生效）
  * @param {function} onToken - 收到每个 token 的回调
+ * @param {function} onTitle - 收到后端推送的对话标题的回调（首条消息后自动生成）
  * @param {function} onDone - 流结束回调
  * @param {function} onError - 错误回调
  * @returns {AbortController} - 用于取消请求
  */
-export function sendMessageStream(convId, content, model, onToken, onDone, onError) {
+export function sendMessageStream(convId, content, model, thinking, onToken, onTitle, onDone, onError) {
   const controller = new AbortController()
 
   fetch(`${BASE_URL}/chat/conversations/${convId}/messages`, {
@@ -47,8 +49,8 @@ export function sendMessageStream(convId, content, model, onToken, onDone, onErr
     headers: {
       'Content-Type': 'application/json',
     },
-    // 请求体携带 content 与用户选择的 model，后端据此路由到对应提供商
-    body: JSON.stringify({ content, model }),
+    // 请求体携带 content、模型与思考开关，后端据此路由并决定是否开启思考模式
+    body: JSON.stringify({ content, model, thinking }),
     signal: controller.signal,
   }).then(async (response) => {
     if (!response.ok) {
@@ -80,6 +82,8 @@ export function sendMessageStream(convId, content, model, onToken, onDone, onErr
         try {
           const parsed = JSON.parse(data)
           if (parsed.token) onToken(parsed.token)
+          // 后端在首条消息时推送生成的对话标题，直接转交前端更新侧边栏
+          if (parsed.title) onTitle(parsed.title)
         } catch {
           // 忽略解析失败的行
         }
