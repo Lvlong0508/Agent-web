@@ -182,3 +182,57 @@ def test_event_stream_unknown_service_raises():
 
     with pytest.raises(ValueError):
         asyncio.run(collect())
+
+
+from fastapi.testclient import TestClient
+
+client = TestClient(manager_web.app)
+
+
+def test_index_returns_html():
+    """首页应返回包含管理界面的 HTML"""
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "后端" in resp.text
+
+
+def test_status_endpoint_shape():
+    """状态接口应返回两个服务的状态字典"""
+    resp = client.get("/api/status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert set(data.keys()) == {"backend", "frontend"}
+    assert data["backend"]["running"] in (True, False)
+
+
+def test_start_endpoint_uses_fake_command():
+    """启动接口应返回 ok=True 并让状态变为运行中"""
+    resp = client.post("/api/start/backend")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert manager_web.get_status("backend")["running"] is True
+
+
+def test_stop_endpoint_returns_friendly_when_not_running():
+    """未运行时停止应返回 ok=False 的友好提示"""
+    resp = client.post("/api/stop/frontend")
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is False
+
+
+def test_unknown_service_endpoint_404():
+    """未知服务的操作接口应返回 404"""
+    resp = client.post("/api/start/database")
+    assert resp.status_code == 404
+
+
+def test_logs_endpoint_returns_sse():
+    """日志接口应返回 text/event-stream"""
+    manager_web._ensure_buffer("backend").append("sse-test")
+    # 注意：SSE 是无限流，TestClient.get() 会等待响应体完全结束而永远阻塞。
+    # 因此改为直接调用路由处理函数，验证返回的响应对象携带正确的 SSE 头。
+    resp = asyncio.run(manager_web.api_logs("backend"))
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/event-stream")
