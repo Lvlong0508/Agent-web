@@ -21,10 +21,12 @@ BACKEND_CMD = (
 )
 
 # 前端启动命令（包含清理旧 vite 进程）
+# 注意：for 循环用括号包裹并用 & 与 npm 连接，而不是把 && npm 放在 do 里。
+# 否则当没有 vite 进程需要清理时，for 循环体一次都不执行，npm run dev 也不会执行。
 FRONTEND_CMD = (
     f'cd /d "{FRONTEND_DIR}" && '
-    f'for /f "tokens=2" %a in (\'tasklist /fi "imagename eq node.exe" /nh ^| findstr /i vite\') '
-    f'do taskkill /f /pid %a >nul 2>&1 && '
+    f'(for /f "tokens=2" %a in (\'tasklist /fi "imagename eq node.exe" /nh ^| findstr /i vite\') '
+    f'do taskkill /f /pid %a >nul 2>&1) & '
     f'npm run dev'
 )
 

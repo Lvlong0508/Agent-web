@@ -236,3 +236,30 @@ def test_logs_endpoint_returns_sse():
     resp = asyncio.run(manager_web.api_logs("backend"))
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/event-stream")
+
+
+def test_frontend_cmd_runs_npm_without_vite_process():
+    """前端启动命令在无 vite 进程需要清理时也必须执行 npm run dev
+
+    回归用例：原实现把 '&& npm run dev' 放在 for 循环的 do 里，导致
+    没有任何 vite 进程时 for 循环体不执行、npm 永远不会被启动。
+    这里把 findstr 关键词换成不可能匹配的内容来模拟'无 vite 进程'，
+    再把 npm run dev 替换成 echo，验证标记仍会输出（不会真起 dev server）。
+    """
+    import manager as manager_mod
+
+    # 换成不可能匹配的关键词，避免测试误杀用户正在运行的 vite 进程
+    safe_cmd = manager_mod.FRONTEND_CMD.replace(
+        "findstr /i vite", "findstr /i __no_vite_marker__"
+    )
+    # 用 echo 代替真实 npm，避免测试拉起 dev server 造成端口占用
+    safe_cmd = safe_cmd.replace("npm run dev", "echo FE_CMD_OK")
+
+    result = subprocess.run(
+        ["cmd.exe", "/c", safe_cmd],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0
+    assert "FE_CMD_OK" in result.stdout
