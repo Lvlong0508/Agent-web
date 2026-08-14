@@ -100,11 +100,12 @@ export function sendMessageStream(
     timeout: 60000,
     // 请求头（含 X-User-Id）由 index.ts 的拦截器统一附加，这里不再手动处理
     onDownloadProgress: (progressEvent) => {
-      // 浏览器端 XHR 的进度事件：responseText 是累计收到的响应文本。
-      // axios 的类型里 AxiosProgressEvent 未暴露 currentTarget，把整个事件
-      // 断言成浏览器 ProgressEvent 拿到底层的 XHR 实例
-      const evt = progressEvent as unknown as ProgressEvent
-      const xhr = evt.currentTarget as unknown as XMLHttpRequest | null
+      // axios 的 AxiosProgressEvent 没有 currentTarget 属性，真实的浏览器
+      // ProgressEvent（含 currentTarget）在 event 字段里。之前误从
+      // progressEvent.currentTarget 取 XHR，拿到 undefined → responseText
+      // 永远为空 → 前端收不到任何 token，回复一直显示"（无回复）"。
+      const evt = progressEvent.event as unknown as ProgressEvent
+      const xhr = evt?.currentTarget as unknown as XMLHttpRequest | null
       handleProgress(xhr?.responseText || '')
     },
   }).then(() => {
