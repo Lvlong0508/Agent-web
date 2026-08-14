@@ -19,3 +19,16 @@ TITLE_GENERATION_TEMPLATE = (
 def build_title_prompt(messages_text: str) -> str:
     """把对话内容拼进标题生成模板，返回最终发送给 LLM 的提示词"""
     return TITLE_GENERATION_TEMPLATE.format(messages_text=messages_text)
+
+
+# 回复验证提示词：让 LLM 以结构化方式判定候选回复是否准确。
+# is_accurate 布尔，issues 为不准确时的问题说明与修正建议
+VERIFY_PROMPT = (
+    "你是回复质量校验员。下面是完整的对话记录，其中最后一条 assistant 消息是待校验的候选回复。\n"
+    "判断该回复是否准确：若对话中有 tool 角色的工具调用结果，必须逐项核对回复中的数据"
+    "（金额、日期、条数等）与工具返回是否一致；若无工具调用，检查回复是否准确、完整、贴合用户问题。\n"
+    '只输出 JSON：{"is_accurate": true/false, "issues": "问题与修正建议，准确时为空字符串"}'
+)
+
+# 验证失败超过重试次数后返回给用户的固定文案
+REPLY_ON_VERIFY_FAILED = "小励出现了点问题，请稍后再尝试吧"
