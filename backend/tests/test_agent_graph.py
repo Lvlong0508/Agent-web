@@ -93,20 +93,26 @@ async def test_astream_runs_full_graph_with_title_and_tokens():
 
     graph = build_agent_graph(conv_repo)
     full_text = ""
-    with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
-        async for item in graph.astream(
-            {
-                "messages": [HumanMessage(content="hi")],
-                "conv_id": "c1",
-                "user_id": "user-abc",  # 图节点按用户隔离查询，必须注入归属用户
-                "model": settings.MODEL_DASHSCOPE_QWEN,
-            },
-            stream_mode="messages",
-        ):
-            if isinstance(item, tuple):
-                chunk, _meta = item
-                if isinstance(chunk.content, str):
-                    full_text += chunk.content
+    # verifier 节点真实调用 _run_verdict 需要结构化输出，fake LLM 不支持，
+    # 这里 patch 成直接返回"准确"的 Verdict，让验证链路走 pass 正常结束
+    async def fake_run_verdict(llm, messages):
+        return Verdict(is_accurate=True, issues="")
+
+    with patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict):
+        with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
+            async for item in graph.astream(
+                {
+                    "messages": [HumanMessage(content="hi")],
+                    "conv_id": "c1",
+                    "user_id": "user-abc",  # 图节点按用户隔离查询，必须注入归属用户
+                    "model": settings.MODEL_DASHSCOPE_QWEN,
+                },
+                stream_mode="messages",
+            ):
+                if isinstance(item, tuple):
+                    chunk, _meta = item
+                    if isinstance(chunk.content, str):
+                        full_text += chunk.content
 
     # 标题已通过 generate_title 节点写入数据库
     conv_repo.update_title.assert_awaited_once_with("c1", "测试标题")
@@ -114,9 +120,9 @@ async def test_astream_runs_full_graph_with_title_and_tokens():
     conv_repo.get_by_id.assert_awaited_once_with("c1", "user-abc")
     # agent 节点的回复以 token 形式流式拼出（messages 流还包含标题 token，不影响）
     assert "你好，世界" in full_text
-    # 图内节点应按所选模型创建 LLM（标题节点 + agent 节点各调用一次）。
-    # 注意：两节点是并行 fan-out，谁先调用 create_llm 顺序不固定，只校验次数与取值
-    assert len(received_models) == 2
+    # 图内节点应按所选模型创建 LLM（标题节点 + agent 节点 + verifier 节点各调用一次）。
+    # 注意：三节点并行 fan-out，谁先调用 create_llm 顺序不固定，只校验次数与取值
+    assert len(received_models) == 3
     assert all(m == settings.MODEL_DASHSCOPE_QWEN for m in received_models)
 
 
@@ -147,26 +153,31 @@ async def test_title_failure_does_not_block_chat():
 
     graph = build_agent_graph(conv_repo)
     full_text = ""
-    with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
-        async for item in graph.astream(
-            {
-                "messages": [HumanMessage(content="hi")],
-                "conv_id": "c1",
-                "user_id": "user-abc",
-                "model": settings.MODEL_DASHSCOPE_QWEN,
-            },
-            stream_mode="messages",
-        ):
-            if isinstance(item, tuple):
-                chunk, _meta = item
-                if isinstance(chunk.content, str):
-                    full_text += chunk.content
+    # verifier 节点真实调用 _run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
+    async def fake_run_verdict(llm, messages):
+        return Verdict(is_accurate=True, issues="")
+
+    with patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict):
+        with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
+            async for item in graph.astream(
+                {
+                    "messages": [HumanMessage(content="hi")],
+                    "conv_id": "c1",
+                    "user_id": "user-abc",
+                    "model": settings.MODEL_DASHSCOPE_QWEN,
+                },
+                stream_mode="messages",
+            ):
+                if isinstance(item, tuple):
+                    chunk, _meta = item
+                    if isinstance(chunk.content, str):
+                        full_text += chunk.content
 
     # 标题生成失败被静默吞掉，聊天回复不受影响
     assert "仍正常回复" in full_text
-    # 图内节点应按所选模型创建 LLM（标题节点 + agent 节点各调用一次）。
+    # 图内节点应按所选模型创建 LLM（标题节点 + agent 节点 + verifier 节点各调用一次）。
     # 并行 fan-out 下调用顺序不固定，只校验次数与取值
-    assert len(received_models) == 2
+    assert len(received_models) == 3
     assert all(m == settings.MODEL_DASHSCOPE_QWEN for m in received_models)
 
 
@@ -187,13 +198,18 @@ async def test_generate_title_node_exposes_title_in_updates():
 
     graph = build_agent_graph(conv_repo)
     updates = []
-    with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
-        async for mode, data in graph.astream(
-            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
-            stream_mode=["messages", "updates"],
-        ):
-            if mode == "updates":
-                updates.append(data)
+    # verifier 节点真实调用 _run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
+    async def fake_run_verdict(llm, messages):
+        return Verdict(is_accurate=True, issues="")
+
+    with patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict):
+        with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
+            async for mode, data in graph.astream(
+                {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
+                stream_mode=["messages", "updates"],
+            ):
+                if mode == "updates":
+                    updates.append(data)
 
     # generate_title 节点产出的标题能通过 updates 模式被上层拿到（供 SSE 推送前端）
     assert any(
@@ -285,25 +301,30 @@ async def test_agent_node_thinking_switch():
         return title_llm if not streaming else agent_llm
 
     graph = build_agent_graph(conv_repo)
-    with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
-        async for _item in graph.astream(
-            {
-                "messages": [HumanMessage(content="hi")],
-                "conv_id": "c1",
-                "user_id": "user-abc",
-                "model": settings.MODEL_DASHSCOPE_QWEN,
-                "thinking": True,  # 用户在前端开启了深度思考
-            },
-            stream_mode="messages",
-        ):
-            pass
+    # verifier 节点真实调用 _run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
+    async def fake_run_verdict(llm, messages):
+        return Verdict(is_accurate=True, issues="")
+
+    with patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict):
+        with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
+            async for _item in graph.astream(
+                {
+                    "messages": [HumanMessage(content="hi")],
+                    "conv_id": "c1",
+                    "user_id": "user-abc",
+                    "model": settings.MODEL_DASHSCOPE_QWEN,
+                    "thinking": True,  # 用户在前端开启了深度思考
+                },
+                stream_mode="messages",
+            ):
+                pass
 
     # 并行 fan-out 下调用顺序不固定，按 streaming 区分两个节点的调用
     title_calls = [r for r in received if not r["streaming"]]
     agent_calls = [r for r in received if r["streaming"]]
-    # 标题节点：无论 thinking 开关如何，都关闭思考（保证标题秒回、先于内容）
-    assert len(title_calls) == 1
-    assert title_calls[0]["enable_thinking"] is False
+    # 标题节点 + verifier 节点均为非流式调用（都关闭思考），各记录一次
+    assert len(title_calls) == 2
+    assert all(r["enable_thinking"] is False for r in title_calls)
     # agent 节点：开启思考时 enable_thinking=True
     assert len(agent_calls) == 1
     assert agent_calls[0]["enable_thinking"] is True
@@ -326,12 +347,17 @@ async def test_agent_node_thinking_defaults_off():
         return agent_llm
 
     graph = build_agent_graph(conv_repo)
-    with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
-        async for _item in graph.astream(
-            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc"},
-            stream_mode="messages",
-        ):
-            pass
+    # verifier 节点真实调用 _run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
+    async def fake_run_verdict(llm, messages):
+        return Verdict(is_accurate=True, issues="")
+
+    with patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict):
+        with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
+            async for _item in graph.astream(
+                {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc"},
+                stream_mode="messages",
+            ):
+                pass
 
     agent_calls = [r for r in received if r["streaming"]]
     assert len(agent_calls) == 1
@@ -366,16 +392,21 @@ async def test_astream_defaults_to_ollama_without_model():
         return agent_llm
 
     graph = build_agent_graph(conv_repo)
-    with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
-        async for _item in graph.astream(
-            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc"},
-            stream_mode="messages",
-        ):
-            pass
+    # verifier 节点真实调用 _run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
+    async def fake_run_verdict(llm, messages):
+        return Verdict(is_accurate=True, issues="")
 
-    # 标题节点 + agent 节点各调用一次 create_llm，且均缺省回退 Ollama 选择名。
+    with patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict):
+        with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
+            async for _item in graph.astream(
+                {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc"},
+                stream_mode="messages",
+            ):
+                pass
+
+    # 标题节点 + agent 节点 + verifier 节点各调用一次 create_llm，且均缺省回退 Ollama 选择名。
     # 并行 fan-out 下调用顺序不固定，只校验次数与取值
-    assert len(received_models) == 2
+    assert len(received_models) == 3
     assert all(m == settings.MODEL_OLLAMA for m in received_models)
 
 
@@ -453,3 +484,130 @@ def test_agent_state_declares_verification_result():
     # 编译后的图把状态 schema 展开为 channels：声明过的键才会生成对应通道，
     # 未声明的键会被 LangGraph 静默丢弃，channels 中查不到
     assert "verification_result" in graph.builder.channels
+
+
+@pytest.mark.asyncio
+async def test_build_graph_registers_verifier_node(mock_conv_repo):
+    """图注册了 generate_title / agent / tools / verifier 四个节点"""
+    graph = build_agent_graph(mock_conv_repo)
+    nodes = list(graph.get_graph().nodes)
+    assert "verifier" in nodes
+    assert "agent" in nodes
+    assert "tools" in nodes
+
+
+@pytest.mark.asyncio
+async def test_verifier_accurate_ends_graph():
+    """验证通过：verification_result=pass，图正常结束"""
+    conv = MagicMock()
+    conv.title = "已有标题"  # 跳过标题生成，聚焦验证链路
+    conv_repo = MagicMock()
+    conv_repo.get_by_id = AsyncMock(return_value=conv)
+    conv_repo.update_title = AsyncMock(return_value=None)
+
+    agent_llm = GenericFakeChatModel(messages=iter([AIMessage(content="回复")]))
+
+    # verifier 的 LLM 调用被替换为直接返回 Verdict（避免真实结构化输出依赖）
+    async def fake_run_verdict(llm, messages):
+        return Verdict(is_accurate=True, issues="")
+
+    graph = build_agent_graph(conv_repo)
+    updates = []
+    with (
+        patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict),
+        patch("app.services.agent_graph.create_llm", side_effect=lambda streaming=True, model="", enable_thinking=True, max_tokens=None: agent_llm),
+    ):
+        async for mode, data in graph.astream(
+            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
+            stream_mode=["messages", "updates"],
+        ):
+            if mode == "updates":
+                updates.append(data)
+
+    assert any(u.get("verifier", {}).get("verification_result") == "pass" for u in updates)
+
+
+@pytest.mark.asyncio
+async def test_verifier_retry_then_pass_loops_through_agent():
+    """首次不准确回 agent 重写，重写后准确走 pass"""
+    conv = MagicMock()
+    conv.title = "已有标题"
+    conv_repo = MagicMock()
+    conv_repo.get_by_id = AsyncMock(return_value=conv)
+    conv_repo.update_title = AsyncMock(return_value=None)
+
+    # 首轮与重写轮各用一条 fake 回复
+    first_llm = GenericFakeChatModel(messages=iter([AIMessage(content="首次回复")]))
+    rewrite_llm = GenericFakeChatModel(messages=iter([AIMessage(content="重写回复")]))
+
+    # 按 streaming 区分：首轮流式(True)拿 first_llm，重写轮非流式(False)拿 rewrite_llm
+    def fake_create_llm(streaming=True, model="", enable_thinking=True, max_tokens=None):
+        return first_llm if streaming else rewrite_llm
+
+    # 第一次验证判不准，第二次判准确
+    calls = {"n": 0}
+
+    async def fake_run_verdict(llm, messages):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return Verdict(is_accurate=False, issues="金额错误")
+        return Verdict(is_accurate=True, issues="")
+
+    graph = build_agent_graph(conv_repo)
+    updates = []
+    with (
+        patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict),
+        patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm),
+    ):
+        async for mode, data in graph.astream(
+            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
+            stream_mode=["messages", "updates"],
+        ):
+            if mode == "updates":
+                updates.append(data)
+
+    results = [u["verifier"]["verification_result"] for u in updates if "verifier" in u]
+    assert results == ["retry", "pass"]
+    # 重写轮非流式 LLM 产出的"重写回复"应出现在 agent 消息流中
+    assert any(
+        "重写回复" in m.content
+        for u in updates
+        for m in u.get("agent", {}).get("messages", [])
+    )
+
+
+@pytest.mark.asyncio
+async def test_verifier_fail_when_retries_exhausted():
+    """超过重试上限：verification_result=fail，不再循环"""
+    conv = MagicMock()
+    conv.title = "已有标题"
+    conv_repo = MagicMock()
+    conv_repo.get_by_id = AsyncMock(return_value=conv)
+    conv_repo.update_title = AsyncMock(return_value=None)
+
+    first_llm = GenericFakeChatModel(messages=iter([AIMessage(content="首次")]))
+    rewrite_llm = GenericFakeChatModel(messages=iter([AIMessage(content="重写1"), AIMessage(content="重写2")]))
+
+    def fake_create_llm(streaming=True, model="", enable_thinking=True, max_tokens=None):
+        return first_llm if streaming else rewrite_llm
+
+    # 每次都判不准
+    async def fake_run_verdict(llm, messages):
+        return Verdict(is_accurate=False, issues="始终不准")
+
+    graph = build_agent_graph(conv_repo)
+    updates = []
+    with (
+        patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict),
+        patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm),
+    ):
+        async for mode, data in graph.astream(
+            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
+            stream_mode=["messages", "updates"],
+        ):
+            if mode == "updates":
+                updates.append(data)
+
+    results = [u["verifier"]["verification_result"] for u in updates if "verifier" in u]
+    # 首次 + 重写1 + 重写2 共三次验证，前两次 retry 最后一次 fail
+    assert results == ["retry", "retry", "fail"]

@@ -175,12 +175,27 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
         # 监听此字段，一旦非空就通过 SSE 把标题实时推给前端侧边栏
         return {"generated_title": title or ""}
 
+    # verifier 节点：判定 agent 候选回复是否准确，决定结束/重写/报错
+    async def verifier_node(state: AgentState) -> dict:
+        llm = create_llm(
+            streaming=False,
+            model=state.get("model") or settings.MODEL_OLLAMA,
+            # 验证不需要深度思考：关闭思考模式让判定快速返回，避免十几秒思考拖慢
+            enable_thinking=False,
+        )
+        verdict = await _run_verdict(llm, state["messages"])
+        return _decide_verification(verdict, state)
+
     # agent 节点：把消息流（已含系统提示词）交给 LLM 生成回复
     # （stream_mode 会自动流式输出 token）
     async def agent_node(state: AgentState) -> dict:
-        # thinking 开关（缺省 False=关闭）：通义千问开启思考时首 token 要等十几秒，
-        # 默认关掉保证回复快速流式输出，用户可在前端按钮手动开启
+        # 重写轮判断：verifier 未通过时 verification_feedback 非空。
+        # 重写轮用非流式 LLM：首轮流式 token 已推给前端，重写轮的 token 若再
+        # 逐字推送会造成内容闪烁，故静默生成、验证通过后由 chat_service 推送最终版
+        feedback = state.get("verification_feedback", "")
+        is_rewrite = bool(feedback)
         llm = create_llm(
+            streaming=not is_rewrite,
             model=state.get("model") or settings.MODEL_OLLAMA,
             enable_thinking=state.get("thinking", False),
         )
@@ -189,7 +204,16 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
             # bind_tools 把工具 schema 暴露给 LLM，它才能在回复中发起工具调用；
             # 随后条件边 should_continue 检测到 tool_calls 就走 tools 节点执行
             llm = llm.bind_tools(tools)
-        response = await llm.ainvoke(state["messages"])
+        messages = state["messages"]
+        if is_rewrite:
+            # 把验证意见注入上下文，agent 才知道错在哪、如何针对性修正
+            messages = [
+                *messages,
+                HumanMessage(
+                    content=f"你的上一条回复未通过准确性校验，请根据以下意见修正后重新作答：{feedback}"
+                ),
+            ]
+        response = await llm.ainvoke(messages)
         return {"messages": [response]}
 
     # 系统提示词由 chat_service 在构造入口状态时前置注入，见 chat_service._run_graph
@@ -198,6 +222,7 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
     graph.add_node("generate_title", generate_title_node)
     graph.add_node("agent", agent_node)
     graph.add_node("tools", ToolNode(tools))  # 工具执行节点：条件边命中时运行工具
+    graph.add_node("verifier", verifier_node)  # 验证节点：校验候选回复是否准确
     # fan-out 并行：标题生成与回复生成互不依赖，同时启动。
     # 若串行（generate_title → agent），标题 LLM 完整生成完才轮到回复流式输出，
     # 首条回复会被标题生成拖慢数秒；并行后回复立即开始流式输出，
@@ -209,12 +234,17 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
     graph.add_conditional_edges(
         "agent",
         should_continue,
-        # verifier 节点尚未实现（后续任务接入），当前先把"无工具调用"的结果
-        # 映射到 END，保证图可运行；接入 verifier 后这里改为 {"verifier": "verifier"}
-        {"tools": "tools", "verifier": END},
+        # 无工具调用时进 verifier 校验，有工具调用时进 tools 执行
+        {"tools": "tools", "verifier": "verifier"},
     )
     # 工具执行完必须回到 agent 再跑一轮：agent 拿到工具结果后生成最终回复。
     # 若不连这条边，图在 tools 节点后直接结束，最终回复永远不会产出，
     # 且工具调用轮次里 LLM 输出的中间说明文字（如"正在查询..."）会被误收集成回复。
     graph.add_edge("tools", "agent")
+    # verifier 条件边：校验通过/超限走 END，反馈非空（需重写）回 agent 重写
+    graph.add_conditional_edges(
+        "verifier",
+        route_after_verify,
+        {"agent": "agent", END: END},
+    )
     return graph.compile()
