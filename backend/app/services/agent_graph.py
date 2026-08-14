@@ -4,14 +4,15 @@ from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
+from pydantic import BaseModel
 
 from app.config.settings import settings
 from app.repositories.conversation_repo import ConversationRepo
-from app.services.prompts import build_title_prompt
+from app.services.prompts import build_title_prompt, VERIFY_PROMPT
 
 
 class AgentState(MessagesState):
-    """agent 图的共享状态：消息列表（继承）+ 当前对话 ID + 模型选择名 + 新生成的标题 + 思考开关"""
+    """agent 图的共享状态：消息列表（继承）+ 当前对话 ID + 模型选择名 + 新生成的标题 + 思考开关 + 验证状态"""
     conv_id: str
     # 注意：TypedDict 状态不应用类属性默认值，缺省回退逻辑在节点内用 state.get 实现
     user_id: str  # 当前请求用户 ID：由 chat_service 注入，图节点查询/写入按用户隔离
@@ -21,6 +22,20 @@ class AgentState(MessagesState):
     generated_title: str
     # 深度思考开关：仅通义千问生效，开启时回复先生成思考过程再回答（更慢但更深入）
     thinking: bool
+    # 验证重写计数：verifier 判不准确时累加，超限后返回固定文案（防止无限循环）
+    rewrite_count: int
+    # 验证反馈：verifier 写给 agent 的修正意见；非空表示候选回复未通过，需重写
+    verification_feedback: str
+
+
+# 回复不准确时的最大重写次数：验证->重写->再验证循环的上限，防止无限循环拖慢响应
+MAX_VERIFY_RETRIES = 2
+
+
+class Verdict(BaseModel):
+    """验证结论：is_accurate 判定候选回复是否准确，issues 给出问题说明与修正建议"""
+    is_accurate: bool
+    issues: str
 
 
 def create_llm(
@@ -77,11 +92,18 @@ async def _generate_title_if_empty(conv, messages, llm) -> str | None:
     return result.content.strip().strip('"\'')
 
 
-def should_continue(state: AgentState) -> Literal["tools", END]:
-    """条件边：最后一条消息含工具调用则进 tools 节点，否则结束"""
+def should_continue(state: AgentState) -> Literal["tools", "verifier"]:
+    """条件边：最后一条消息含工具调用则进 tools 节点，否则进 verifier 验证"""
     last_message = state["messages"][-1]
     if last_message.tool_calls:
         return "tools"
+    return "verifier"
+
+
+def route_after_verify(state: AgentState) -> Literal["agent", END]:
+    """条件边：验证反馈非空（需重写）回 agent，否则（通过或超限）结束"""
+    if state.get("verification_feedback"):
+        return "agent"
     return END
 
 
@@ -151,7 +173,9 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
     graph.add_conditional_edges(
         "agent",
         should_continue,
-        {"tools": "tools", END: END},
+        # verifier 节点尚未实现（后续任务接入），当前先把"无工具调用"的结果
+        # 映射到 END，保证图可运行；接入 verifier 后这里改为 {"verifier": "verifier"}
+        {"tools": "tools", "verifier": END},
     )
     # 工具执行完必须回到 agent 再跑一轮：agent 拿到工具结果后生成最终回复。
     # 若不连这条边，图在 tools 节点后直接结束，最终回复永远不会产出，

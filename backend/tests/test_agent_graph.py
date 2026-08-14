@@ -11,7 +11,11 @@ from app.services.agent_graph import (
     create_llm,
     should_continue,
     _generate_title_if_empty,
+    route_after_verify,
+    MAX_VERIFY_RETRIES,
+    Verdict,
 )
+from app.services.prompts import VERIFY_PROMPT
 
 
 @pytest.fixture
@@ -30,9 +34,9 @@ def test_build_agent_graph_registers_nodes(mock_conv_repo):
 
 
 def test_should_continue_without_tool_calls():
-    """测试最后消息无工具调用时路由到 END"""
+    """测试最后消息无工具调用时路由到 verifier"""
     state = {"messages": [AIMessage(content="你好")]}
-    assert should_continue(state) == END
+    assert should_continue(state) == "verifier"
 
 
 def test_should_continue_with_tool_calls():
@@ -371,3 +375,24 @@ async def test_astream_defaults_to_ollama_without_model():
     # 并行 fan-out 下调用顺序不固定，只校验次数与取值
     assert len(received_models) == 2
     assert all(m == settings.MODEL_OLLAMA for m in received_models)
+
+
+def test_should_continue_without_tool_calls_routes_to_verifier():
+    """最后消息无工具调用时路由到 verifier（不再直接 END）"""
+    state = {"messages": [AIMessage(content="你好")]}
+    assert should_continue(state) == "verifier"
+
+
+def test_route_after_verify_with_feedback():
+    """有验证反馈（需重写）时回 agent"""
+    assert route_after_verify({"verification_feedback": "金额错误"}) == "agent"
+
+
+def test_route_after_verify_without_feedback():
+    """无反馈（通过或超限）时走 END"""
+    assert route_after_verify({"verification_feedback": ""}) == END
+
+
+def test_max_verify_retries_is_two():
+    """重试上限固定为 2 次"""
+    assert MAX_VERIFY_RETRIES == 2
