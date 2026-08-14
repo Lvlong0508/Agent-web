@@ -8,7 +8,7 @@ from app.config.settings import settings
 from app.models.conversation import Conversation
 from app.schemas.chat import SendMessageRequest
 from app.services.chat_service import ChatService
-from app.services.prompts import SYSTEM_PROMPT
+from app.services.prompts import REPLY_ON_VERIFY_FAILED, SYSTEM_PROMPT
 
 
 @pytest.fixture
@@ -326,3 +326,100 @@ def test_send_message_request_rejects_unknown_model():
     """测试未知模型选择名在请求校验阶段被拒绝"""
     with pytest.raises(ValidationError):
         SendMessageRequest(content="hi", model="unknown-model")
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_pushes_rewriting_event(chat_service):
+    """verifier 判不准确时推送 rewriting 事件，重写轮 token 不推前端"""
+    conv = Conversation(_id="c1", user_id="anonymous")
+    chat_service.conv_repo.get_by_id = AsyncMock(return_value=conv)
+    chat_service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
+    chat_service.msg_repo.create = AsyncMock(return_value=None)
+
+    first_chunk = MagicMock()
+    first_chunk.content = "首次回复"
+    first_chunk.tool_call_chunks = []
+    rewrite_chunk = MagicMock()
+    rewrite_chunk.content = "重写回复"
+    rewrite_chunk.tool_call_chunks = []
+
+    async def fake_astream(input, **kwargs):
+        """首轮流式 token → verifier retry → 重写轮 token（非流式弹出完整 chunk）"""
+        yield ("messages", (first_chunk, {"langgraph_node": "agent"}))
+        yield ("updates", {"verifier": {"verification_result": "retry"}})
+        yield ("messages", (rewrite_chunk, {"langgraph_node": "agent"}))
+
+    chat_service.graph = MagicMock()
+    chat_service.graph.astream = fake_astream
+
+    tokens = []
+    async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_DASHSCOPE_QWEN):
+        tokens.append(chunk)
+
+    # rewriting 事件已推送
+    assert any('"rewriting"' in t for t in tokens)
+    # 重写轮的 token 不得推给前端
+    assert not any("重写回复" in t for t in tokens)
+    # 首轮流式 token 正常推送
+    assert any("首次回复" in t for t in tokens)
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_pushes_final_after_rewrite(chat_service):
+    """重写后验证通过：推送 final 事件（最终版完整文本），assistant 保存最终版"""
+    conv = Conversation(_id="c1", user_id="anonymous")
+    chat_service.conv_repo.get_by_id = AsyncMock(return_value=conv)
+    chat_service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
+    chat_service.msg_repo.create = AsyncMock(return_value=None)
+
+    first_chunk = MagicMock()
+    first_chunk.content = "首次回复"
+    first_chunk.tool_call_chunks = []
+    rewrite_chunk = MagicMock()
+    rewrite_chunk.content = "最终版回复"
+    rewrite_chunk.tool_call_chunks = []
+
+    async def fake_astream(input, **kwargs):
+        """首轮 token → retry → 重写轮 token → verifier pass"""
+        yield ("messages", (first_chunk, {"langgraph_node": "agent"}))
+        yield ("updates", {"verifier": {"verification_result": "retry"}})
+        yield ("messages", (rewrite_chunk, {"langgraph_node": "agent"}))
+        yield ("updates", {"verifier": {"verification_result": "pass"}})
+
+    chat_service.graph = MagicMock()
+    chat_service.graph.astream = fake_astream
+
+    tokens = []
+    async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_DASHSCOPE_QWEN):
+        tokens.append(chunk)
+
+    # final 事件携带最终版完整文本
+    assert any('"final": "最终版回复"' in t for t in tokens)
+    # assistant 保存的是最终版（而非首轮残稿）
+    calls = [c.args[0] for c in chat_service.msg_repo.create.call_args_list]
+    assistant_saved = [m for m in calls if m.role == "assistant"][0]
+    assert assistant_saved.content == "最终版回复"
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_fail_returns_fixed_message(chat_service):
+    """验证超限 fail：返回固定文案，assistant 保存该文案"""
+    conv = Conversation(_id="c1", user_id="anonymous")
+    chat_service.conv_repo.get_by_id = AsyncMock(return_value=conv)
+    chat_service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
+    chat_service.msg_repo.create = AsyncMock(return_value=None)
+
+    async def fake_astream(input, **kwargs):
+        yield ("updates", {"verifier": {"verification_result": "fail"}})
+
+    chat_service.graph = MagicMock()
+    chat_service.graph.astream = fake_astream
+
+    tokens = []
+    async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_DASHSCOPE_QWEN):
+        tokens.append(chunk)
+
+    assert any(f'"final": "{REPLY_ON_VERIFY_FAILED}"' in t for t in tokens)
+    calls = [c.args[0] for c in chat_service.msg_repo.create.call_args_list]
+    assistant_saved = [m for m in calls if m.role == "assistant"][0]
+    assert assistant_saved.content == REPLY_ON_VERIFY_FAILED
