@@ -242,7 +242,7 @@ export function useChat() {
       if (assistantMsg.thinking) assistantMsg.thinkSeconds += 1
     }, 1000)
 
-    // 出错时立即排空队列并显示错误（错误场景不追求逐字效果）
+    // 出错时立即排空渲染队列：不等待打字机逐字效果，直接完成已收内容的渲染
     function stopRenderingImmediately() {
       if (renderTimer) { clearInterval(renderTimer); renderTimer = null }
       if (thinkTimer) { clearInterval(thinkTimer); thinkTimer = null }
