@@ -1,7 +1,7 @@
 import logging
 from typing import Literal
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
@@ -141,20 +141,41 @@ def _decide_verification(verdict: Verdict, state: AgentState) -> dict:
 
 
 async def _run_verdict(llm, messages) -> Verdict:
-    """调用结构化输出 LLM，基于完整对话（含工具结果与候选回复）得到验证结论"""
+    """调用结构化输出 LLM，基于"用户问题 + 工具结果 + 候选回复"得到验证结论。
+
+    只取这三类消息，丢弃其他历史：否则质检员会看到互相矛盾的多轮回复
+    （如首轮幻觉 320 元、重写轮 70 元），被历史干扰而误判正确回复不准确
+    （实测 bug：质检员判词里已认定"与tool一致、回复准确"，却返回 is_accurate=False）。
+    """
     structured = llm.with_structured_output(Verdict)
     # 过滤掉角色设定 SystemMessage（如 SYSTEM_PROMPT"你是小励"）：这些不是对话
     # 内容，若保留会与 VERIFY_PROMPT 形成两条 SystemMessage 连排，模型会把角色
-    # 设定误当成对话参与者，导致校验对象搞错（实测 bug：把"小励"当成了用户）。
-    # 只保留 user/assistant/tool 对话消息，再前置验证提示词
+    # 设定误当成对话参与者，导致校验对象搞错（实测 bug：把"小励"当成了用户）
     dialogue_messages = [m for m in messages if not isinstance(m, SystemMessage)]
-    # 诊断日志：确认发给质检员的消息序列（SystemMessage 已被过滤，不会混入角色设定）
+
+    # 候选回复：最后一条"无工具调用"的 assistant 消息（图结构保证进 verifier
+    # 时它是当前待校验的回复；历史中更早的无工具调用回复是已判错的旧轮次，丢弃）
+    candidate = None
+    for m in reversed(dialogue_messages):
+        if isinstance(m, AIMessage) and not m.tool_calls:
+            candidate = m
+            break
+
+    # 精简上下文：只保留用户问题、工具结果、候选回复三类消息，顺序按原文保持。
+    # 带 tool_calls 的中间轮（"让我查询一下"）与已判错的旧轮次都会干扰判定
+    reduced = [
+        m for m in dialogue_messages
+        if isinstance(m, HumanMessage)
+        or isinstance(m, ToolMessage)
+        or (candidate is not None and m is candidate)
+    ]
+    # 诊断日志：确认发给质检员的消息序列（SystemMessage 已过滤、旧轮次已丢弃）
     logger.info(
         "verifier 输入消息类型: %s",
-        [type(m).__name__ for m in [SystemMessage(content=VERIFY_PROMPT), *dialogue_messages]],
+        [type(m).__name__ for m in [SystemMessage(content=VERIFY_PROMPT), *reduced]],
     )
     return await structured.ainvoke(
-        [SystemMessage(content=VERIFY_PROMPT), *dialogue_messages]
+        [SystemMessage(content=VERIFY_PROMPT), *reduced]
     )
 
 
@@ -197,6 +218,9 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
             model=state.get("model") or settings.MODEL_OLLAMA,
             # 验证不需要深度思考：关闭思考模式让判定快速返回，避免十几秒思考拖慢
             enable_thinking=False,
+            # 限制输出长度：质检判定只需短结论（is_accurate + issues），
+            # 防止模型在 issues 里写大段自我推敲导致输出过长/截断、判定不稳定
+            max_tokens=600,
         )
         try:
             # 诊断日志：记录校验依据——候选回复内容与对话中的工具结果条数，

@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END
 
 from app.config.settings import settings
@@ -504,6 +504,44 @@ async def test_run_verdict_filters_system_role_message():
     assert system_msgs[0].content == VERIFY_PROMPT
     # 对话消息完整保留且顺序不变
     assert [type(m) for m in call_messages[1:]] == [HumanMessage, AIMessage]
+
+
+@pytest.mark.asyncio
+async def test_run_verdict_filters_stale_rounds_keeps_candidate_and_tool():
+    """_run_verdict 必须丢弃历史中已判错/重写的旧回复与带工具调用的中间轮，
+    只保留：用户消息 + 工具结果 + 最后一条无工具调用的候选回复。
+    否则质检员会看到互相矛盾的多轮回复（如首轮幻觉 320 元、重写轮 70 元），
+    被历史干扰而误判正确回复不准确（用户实测 bug）"""
+    mock_llm = MagicMock()
+    structured = MagicMock()
+    structured.ainvoke = AsyncMock(return_value=Verdict(is_accurate=True, issues=""))
+    mock_llm.with_structured_output.return_value = structured
+
+    # 模拟真实重写场景的消息序列（含首轮幻觉 + 工具调用中间轮 + 工具结果 + 重写候选）
+    messages = [
+        HumanMessage(content="我这个月一共花了 800 块，是不是？"),
+        # 首轮幻觉回复（320 元，错）
+        AIMessage(content="我这个月一共花了 320 元"),
+        # 重写轮中间轮：先声明再调用工具（带 tool_calls 的 assistant）
+        AIMessage(
+            content="让我重新核对一下",
+            tool_calls=[{"name": "list_expenses", "args": {"page": 1, "page_size": 100}, "id": "1", "type": "tool_call"}],
+        ),
+        # 工具结果
+        ToolMessage(content='{"total": 6, "items": [...]}', name="list_expenses", tool_call_id="1"),
+        # 重写轮最终候选（70 元，正确）
+        AIMessage(content="我这个月一共花了 70 元"),
+    ]
+    await _run_verdict(mock_llm, messages)
+
+    call_messages = structured.ainvoke.call_args.args[0]
+    # 前置 VERIFY_PROMPT 后，其余消息应只剩：用户 + 工具结果 + 候选回复
+    remaining = call_messages[1:]
+    # 丢弃了首轮幻觉回复与带工具调用的中间轮
+    assert [type(m) for m in remaining] == [HumanMessage, ToolMessage, AIMessage]
+    # 候选回复必须是最后一条无工具调用的 assistant（70 元那条）
+    assert remaining[-1].content == "我这个月一共花了 70 元"
+    assert not any("320 元" in m.content for m in remaining if isinstance(m, AIMessage))
 
 
 def test_agent_state_declares_verification_result():
