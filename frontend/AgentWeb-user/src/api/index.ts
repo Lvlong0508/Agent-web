@@ -1,6 +1,6 @@
-import axios from 'axios'
+import axios, { type AxiosInstance } from 'axios'
 
-const http = axios.create({
+const http: AxiosInstance = axios.create({
   baseURL: 'http://localhost:8000',
   timeout: 10000,
   headers: { 'Content-Type': 'application/json' },

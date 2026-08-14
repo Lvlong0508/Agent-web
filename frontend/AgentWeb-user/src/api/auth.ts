@@ -1,5 +1,4 @@
 // 用户身份模块：启动时向后端引导接口索取 user_id，存 localStorage，供请求头使用
-// @ts-expect-error index.js 是普通 JS 无类型声明，这里只用到 axios 实例的 get
 import http from './index'
 
 // localStorage 键名：缓存当前设备分配到的用户 ID
