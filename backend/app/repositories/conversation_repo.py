@@ -25,9 +25,9 @@ class ConversationRepo:
         docs = await cursor.to_list(length=None)
         return [Conversation(**doc) for doc in docs]
 
-    async def get_by_id(self, conv_id: str) -> Conversation | None:
-        """根据对话 ID 获取对话"""
-        doc = await self.collection.find_one({"_id": conv_id})
+    async def get_by_id(self, conv_id: str, user_id: str) -> Conversation | None:
+        """根据对话 ID + 归属用户获取对话；不属于该用户时返回 None（查询层防越权）"""
+        doc = await self.collection.find_one({"_id": conv_id, "user_id": user_id})
         return Conversation(**doc) if doc else None
 
     async def update_title(self, conv_id: str, title: str):

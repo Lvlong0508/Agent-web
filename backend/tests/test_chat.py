@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 from langchain_core.messages import SystemMessage
 from pydantic import ValidationError
 
+from app.auth import current_user_id
 from app.config.settings import settings
 from app.models.conversation import Conversation
 from app.schemas.chat import SendMessageRequest
@@ -14,6 +15,14 @@ from app.services.prompts import SYSTEM_PROMPT
 def mock_db():
     """Mock MongoDB 数据库实例"""
     return MagicMock()
+
+
+@pytest.fixture(autouse=True)
+def user_context():
+    """模拟 get_current_user_id 依赖：为每个用例注入固定用户身份并复位"""
+    token = current_user_id.set("anonymous")
+    yield
+    current_user_id.reset(token)
 
 
 @pytest.fixture
@@ -57,10 +66,8 @@ async def test_list_conversations_empty_title(chat_service):
 
 @pytest.mark.asyncio
 async def test_get_messages_unauthorized(chat_service):
-    """测试无权访问其他用户的对话"""
-    chat_service.conv_repo.get_by_id = AsyncMock(return_value=Conversation(
-        _id="c1", user_id="other-user",
-    ))
+    """repo 按 user_id 过滤查不到（越权）时抛 PermissionError"""
+    chat_service.conv_repo.get_by_id = AsyncMock(return_value=None)
 
     with pytest.raises(PermissionError):
         await chat_service.get_messages("c1")
@@ -68,13 +75,41 @@ async def test_get_messages_unauthorized(chat_service):
 
 @pytest.mark.asyncio
 async def test_delete_conversation_unauthorized(chat_service):
-    """测试无权删除其他用户的对话"""
-    chat_service.conv_repo.get_by_id = AsyncMock(return_value=Conversation(
-        _id="c1", user_id="other-user",
-    ))
+    """repo 按 user_id 过滤查不到（越权）时抛 PermissionError"""
+    chat_service.conv_repo.get_by_id = AsyncMock(return_value=None)
 
     with pytest.raises(PermissionError):
         await chat_service.delete_conversation("c1")
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_respects_current_user(chat_service):
+    """归属校验基于 contextvar 当前用户而非硬编码 anonymous"""
+    token = current_user_id.set("other-user")
+    try:
+        conv = Conversation(_id="c1", user_id="other-user")
+        chat_service.conv_repo.get_by_id = AsyncMock(return_value=conv)
+        chat_service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
+        chat_service.msg_repo.create = AsyncMock(return_value=None)
+
+        mock_chunk = MagicMock()
+        mock_chunk.content = "你好"
+        mock_meta = {"langgraph_node": "agent"}
+
+        async def fake_astream(input, **kwargs):
+            yield ("messages", (mock_chunk, mock_meta))
+
+        chat_service.graph = MagicMock()
+        chat_service.graph.astream = fake_astream
+
+        tokens = []
+        async for chunk in chat_service.chat_stream(
+            "c1", "hello", settings.MODEL_DASHSCOPE_QWEN
+        ):
+            tokens.append(chunk)
+        assert any("你好" in t for t in tokens)
+    finally:
+        current_user_id.reset(token)
 
 
 @pytest.mark.asyncio

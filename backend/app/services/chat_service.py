@@ -3,7 +3,7 @@ import json
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.config.settings import settings
+from app.auth import get_current_user_id_or_raise
 from app.repositories.conversation_repo import ConversationRepo
 from app.repositories.message_repo import MessageRepo
 from app.models.message import Message
@@ -28,13 +28,15 @@ class ChatService:
     # ----------------------------------------------------------------
 
     async def create_conversation(self) -> dict:
-        """创建新对话，返回对话基本信息（归属固定匿名用户）"""
-        conv = await self.conv_repo.create(settings.DEFAULT_USER_ID)
+        """创建新对话，返回对话基本信息（归属当前请求用户）"""
+        user_id = get_current_user_id_or_raise()
+        conv = await self.conv_repo.create(user_id)
         return {"id": conv.id, "title": conv.title, "created_at": conv.created_at}
 
     async def list_conversations(self) -> list[dict]:
         """列出全部对话（单用户模式下即匿名用户的全部对话）"""
-        convs = await self.conv_repo.list_by_user(settings.DEFAULT_USER_ID)
+        user_id = get_current_user_id_or_raise()
+        convs = await self.conv_repo.list_by_user(user_id)
         return [
             {
                 "id": c.id,
@@ -46,17 +48,19 @@ class ChatService:
         ]
 
     async def delete_conversation(self, conv_id: str):
-        """删除对话及其全部消息"""
-        conv = await self.conv_repo.get_by_id(conv_id)
-        if not conv or conv.user_id != settings.DEFAULT_USER_ID:
+        """删除当前用户的对话及其全部消息（不属于当前用户则报错）"""
+        user_id = get_current_user_id_or_raise()
+        conv = await self.conv_repo.get_by_id(conv_id, user_id)
+        if not conv:
             raise PermissionError("对话不存在或无权访问")
         await self.msg_repo.delete_by_conversation(conv_id)
         await self.conv_repo.delete(conv_id)
 
     async def get_messages(self, conv_id: str) -> list[dict]:
-        """获取对话的历史消息"""
-        conv = await self.conv_repo.get_by_id(conv_id)
-        if not conv or conv.user_id != settings.DEFAULT_USER_ID:
+        """获取当前用户对话的历史消息"""
+        user_id = get_current_user_id_or_raise()
+        conv = await self.conv_repo.get_by_id(conv_id, user_id)
+        if not conv:
             raise PermissionError("对话不存在或无权访问")
         msgs = await self.msg_repo.list_by_conversation(conv_id)
         return [
@@ -71,7 +75,7 @@ class ChatService:
     async def chat_stream(self, conv_id: str, content: str, model: str, thinking: bool = False):
         """
         核心流程：
-        1. 校验对话归属（匿名用户）
+        1. 校验对话归属（当前请求用户，repo 按 user_id 过滤）
         2. 保存用户消息
         3. 拉取完整历史
         4. 运行 LangGraph agent 图（generate_title → agent），流式产出 token
@@ -79,9 +83,10 @@ class ChatService:
 
         thinking：是否开启深度思考（仅通义千问生效），透传给 agent 节点
         """
-        # 1. 校验对话归属
-        conv = await self.conv_repo.get_by_id(conv_id)
-        if not conv or conv.user_id != settings.DEFAULT_USER_ID:
+        # 1. 校验对话归属：repo 查询条件带 user_id，越权直接查不到
+        user_id = get_current_user_id_or_raise()
+        conv = await self.conv_repo.get_by_id(conv_id, user_id)
+        if not conv:
             raise PermissionError("对话不存在或无权访问")
 
         # 2. 保存用户消息
