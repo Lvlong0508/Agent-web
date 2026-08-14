@@ -161,6 +161,15 @@ def test_verify_prompt_irrelevant_tool_is_not_valid_evidence():
     assert "无有效工具" in VERIFY_PROMPT or "无依据" in VERIFY_PROMPT
 
 
+def test_verify_prompt_derivation_allows_single_value():
+    """质检提示词规则0的"推导来源"必须覆盖单值推导：由日期算星期几、
+    由总额与条数算平均每笔，都是基于相关工具结果的合理推导，不能被
+    "多个值"限制误拦（用户审查：单个值也可推导出新数据）"""
+    assert "推导来源" in VERIFY_PROMPT
+    assert "一个或多个值" in VERIFY_PROMPT
+    assert "计算逻辑正确" in VERIFY_PROMPT
+
+
 def test_verify_prompt_no_effective_evidence_when_not_derivable():
     """质检提示词规则4必须覆盖第三种情形：虽有相关工具调用，但候选回复中的
     数据既非直接来自工具结果、也无法由相关工具结果正确推导（如调了账单工具
