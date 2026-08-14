@@ -11,11 +11,12 @@ from app.services.agent_graph import (
     create_llm,
     should_continue,
     _generate_title_if_empty,
+    _run_verdict,
+    _build_verdict_input,
     route_after_verify,
     MAX_VERIFY_RETRIES,
     Verdict,
     _decide_verification,
-    _run_verdict,
 )
 from app.services.prompts import SYSTEM_PROMPT, VERIFY_PROMPT, build_rewrite_prompt
 
@@ -571,6 +572,29 @@ async def test_run_verdict_keeps_only_current_round_user_message():
     assert users[0].content == "本轮问题：我上个月花了多少钱？"
 
 
+def test_build_verdict_input_serializes_payload():
+    """_build_verdict_input 返回（精简消息, 序列化输入）；序列化输入首条为
+    VERIFY_PROMPT 的 system 消息，其余按 role/content 记录，供全链路
+    role=input_verdict 使用"""
+    messages = [
+        HumanMessage(content="我这个月花了多少钱？"),
+        ToolMessage(content="{\"total\": 2}", name="list_expenses", tool_call_id="1"),
+        AIMessage(content="这个月花了 70 元"),
+    ]
+    reduced, serialized = _build_verdict_input(messages)
+
+    # 精简消息保留三类
+    assert [type(m) for m in reduced] == [HumanMessage, ToolMessage, AIMessage]
+    # 序列化：首条是质检提示词
+    assert serialized[0]["role"] == "system"
+    assert serialized[0]["content"] == VERIFY_PROMPT
+    # 后续按 role/content 记录
+    assert [m["role"] for m in serialized[1:]] == ["human", "tool", "ai"]
+    assert serialized[1]["content"] == "我这个月花了多少钱？"
+    assert serialized[2]["content"] == "{\"total\": 2}"
+    assert serialized[3]["content"] == "这个月花了 70 元"
+
+
 def test_agent_state_declares_verification_result():
     """verification_result 必须在状态 schema 中声明，否则 LangGraph 会静默丢弃该键"""
     graph = build_agent_graph(MagicMock())
@@ -584,6 +608,13 @@ def test_agent_state_declares_verdict():
     全链路记录就拿不到质检员的结构化判定"""
     graph = build_agent_graph(MagicMock())
     assert "verdict" in graph.builder.channels
+
+
+def test_agent_state_declares_verdict_input():
+    """verdict_input 必须在状态 schema 中声明，否则 LangGraph 会静默丢弃该键，
+    全链路记录就拿不到发给质检员的输入（role=input_verdict）"""
+    graph = build_agent_graph(MagicMock())
+    assert "verdict_input" in graph.builder.channels
 
 
 @pytest.mark.asyncio

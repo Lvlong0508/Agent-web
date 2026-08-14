@@ -289,10 +289,15 @@ async def test_chat_stream_records_verifier_verdict_in_trace():
         service.msg_repo.create = AsyncMock(return_value=None)
 
         async def fake_astream(input, **kwargs):
-            """verifier 节点产出 verdict（Verdict 字典）并推 updates"""
+            """verifier 节点产出 verdict（Verdict 字典）与 verdict_input（序列化输入）"""
             yield ("updates", {"verifier": {
                 "verification_result": "pass",
                 "verdict": {"is_accurate": True, "issues": ""},
+                "verdict_input": [
+                    {"role": "system", "content": "质检提示词"},
+                    {"role": "human", "content": "我这个月花了多少钱？"},
+                    {"role": "ai", "content": "这个月花了 70 元"},
+                ],
             }})
 
         service.graph = MagicMock()
@@ -302,9 +307,13 @@ async def test_chat_stream_records_verifier_verdict_in_trace():
             pass
 
         run = service.agent_run_repo.create.call_args[0][0]
-        # 全链路应包含质检判定记录
+        # 全链路应包含质检判定记录与发给质检员的输入记录
         verdicts = [m for m in run.messages if m["role"] == "verdict"]
+        inputs = [m for m in run.messages if m["role"] == "input_verdict"]
         assert len(verdicts) == 1
         assert verdicts[0]["content"] == {"is_accurate": True, "issues": ""}
+        assert len(inputs) == 1
+        assert inputs[0]["content"][0]["role"] == "system"
+        assert inputs[0]["content"][1]["content"] == "我这个月花了多少钱？"
     finally:
         current_user_id.reset(token)

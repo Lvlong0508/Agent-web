@@ -37,6 +37,9 @@ class AgentState(MessagesState):
     # 质检员结构化判定（Verdict 的字典）：必须声明才能经 updates 流推给 chat_service，
     # 用于全链路记录追加 role=verdict 条目（未声明的键会被 LangGraph 静默丢弃）
     verdict: dict
+    # 发给质检员的完整输入（序列化消息列表）：必须声明才能经 updates 流推给
+    # chat_service，用于全链路记录追加 role=input_verdict 条目（评估质检效果）
+    verdict_input: list
 
 
 # 回复不准确时的最大重写次数：验证->重写->再验证循环的上限，防止无限循环拖慢响应
@@ -143,14 +146,16 @@ def _decide_verification(verdict: Verdict, state: AgentState) -> dict:
     }
 
 
-async def _run_verdict(llm, messages) -> Verdict:
-    """调用结构化输出 LLM，基于"用户问题 + 工具结果 + 候选回复"得到验证结论。
+def _build_verdict_input(messages) -> tuple[list, list[dict]]:
+    """构造发给质检员的完整输入，返回（精简对话消息, 序列化输入）。
 
-    只取这三类消息，丢弃其他历史：否则质检员会看到互相矛盾的多轮回复
-    （如首轮幻觉 320 元、重写轮 70 元），被历史干扰而误判正确回复不准确
-    （实测 bug：质检员判词里已认定"与tool一致、回复准确"，却返回 is_accurate=False）。
+    精简规则只保留三类消息，避免质检员被历史干扰：
+    - 本轮用户问题（候选回复之前最近的一条 HumanMessage）
+    - 工具结果（ToolMessage）
+    - 候选回复（最后一条无 tool_calls 的 assistant）
+
+    序列化输入供全链路记录（role=input_verdict），便于事后评估质检效果。
     """
-    structured = llm.with_structured_output(Verdict)
     # 过滤掉角色设定 SystemMessage（如 SYSTEM_PROMPT"你是小励"）：这些不是对话
     # 内容，若保留会与 VERIFY_PROMPT 形成两条 SystemMessage 连排，模型会把角色
     # 设定误当成对话参与者，导致校验对象搞错（实测 bug：把"小励"当成了用户）
@@ -182,10 +187,33 @@ async def _run_verdict(llm, messages) -> Verdict:
         or isinstance(m, ToolMessage)
         or (candidate is not None and m is candidate)
     ]
+    # 序列化完整输入（含前置 VERIFY_PROMPT），供全链路记录与日志
+    serialized = [
+        {"role": "system", "content": VERIFY_PROMPT},
+        *[
+            {
+                "role": getattr(m, "type", "unknown"),
+                "content": m.content,
+            }
+            for m in reduced
+        ],
+    ]
+    return reduced, serialized
+
+
+async def _run_verdict(llm, messages) -> Verdict:
+    """调用结构化输出 LLM，基于"用户问题 + 工具结果 + 候选回复"得到验证结论。
+
+    只取这三类消息，丢弃其他历史：否则质检员会看到互相矛盾的多轮回复
+    （如首轮幻觉 320 元、重写轮 70 元），被历史干扰而误判正确回复不准确
+    （实测 bug：质检员判词里已认定"与tool一致、回复准确"，却返回 is_accurate=False）。
+    """
+    structured = llm.with_structured_output(Verdict)
+    reduced, serialized = _build_verdict_input(messages)
     # 诊断日志：确认发给质检员的消息序列（SystemMessage 已过滤、旧轮次已丢弃）
     logger.info(
         "verifier 输入消息类型: %s",
-        [type(m).__name__ for m in [SystemMessage(content=VERIFY_PROMPT), *reduced]],
+        [m["role"] for m in serialized],
     )
     return await structured.ainvoke(
         [SystemMessage(content=VERIFY_PROMPT), *reduced]
@@ -246,6 +274,8 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
                 getattr(last_msg, "content", "")[:200],
                 len(tool_msgs),
             )
+            # 构造发给质检员的输入（同时拿到序列化版本，供全链路记录）
+            _, verdict_input = _build_verdict_input(state["messages"])
             verdict = await _run_verdict(llm, state["messages"])
             logger.info("verifier 判定: is_accurate=%s issues=%r", verdict.is_accurate, verdict.issues)
         except Exception as e:
@@ -259,10 +289,12 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
                 "rewrite_count": state.get("rewrite_count", 0),
                 # 降级时无真实判定，用占位 verdict 保持链路记录字段一致
                 "verdict": {"is_accurate": True, "issues": f"验证器调用失败，降级通过：{e}"},
+                "verdict_input": [],
             }
         decision = _decide_verification(verdict, state)
-        # 把质检员的结构化判定一并写入状态，供上层全链路记录（role=verdict）
+        # 把质检员的结构化判定与其输入一并写入状态，供上层全链路记录
         decision["verdict"] = verdict.model_dump()
+        decision["verdict_input"] = verdict_input
         return decision
 
     # agent 节点：把消息流（已含系统提示词）交给 LLM 生成回复

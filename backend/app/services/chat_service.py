@@ -220,6 +220,13 @@ class ChatService:
                         trace_messages.append(
                             {"role": "verdict", "content": verifier_verdict}
                         )
+                    # 记录发给质检员的完整输入（role=input_verdict）：含 VERIFY_PROMPT
+                    # 与精简后的消息序列，便于事后评估质检效果（看它到底基于什么判定）
+                    verifier_input = data.get("verifier", {}).get("verdict_input")
+                    if verifier_input is not None:
+                        trace_messages.append(
+                            {"role": "input_verdict", "content": verifier_input}
+                        )
                     if result == "retry":
                         # 需重写：清空当前累积，重写轮会产出全新完整回复（不能拼接）
                         pending_reply = ""
