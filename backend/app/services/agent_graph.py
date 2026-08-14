@@ -164,11 +164,21 @@ async def _run_verdict(llm, messages) -> Verdict:
             candidate = m
             break
 
-    # 精简上下文：只保留用户问题、工具结果、候选回复三类消息，顺序按原文保持。
+    # 本轮用户问题：候选回复之前最近的一条 HumanMessage。
+    # 注意不能保留所有 HumanMessage——state["messages"] 含多轮历史对话，
+    # 历史轮次的用户消息会干扰质检（实测日志 verifier 输入出现多条 HumanMessage）
+    current_user_msg = None
+    for m in dialogue_messages:
+        if isinstance(m, HumanMessage):
+            current_user_msg = m
+        if m is candidate:
+            break
+
+    # 精简上下文：只保留本轮用户问题、工具结果、候选回复三类消息，顺序按原文保持。
     # 带 tool_calls 的中间轮（"让我查询一下"）与已判错的旧轮次都会干扰判定
     reduced = [
         m for m in dialogue_messages
-        if isinstance(m, HumanMessage)
+        if (current_user_msg is not None and m is current_user_msg)
         or isinstance(m, ToolMessage)
         or (candidate is not None and m is candidate)
     ]

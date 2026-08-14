@@ -544,6 +544,33 @@ async def test_run_verdict_filters_stale_rounds_keeps_candidate_and_tool():
     assert not any("320 元" in m.content for m in remaining if isinstance(m, AIMessage))
 
 
+@pytest.mark.asyncio
+async def test_run_verdict_keeps_only_current_round_user_message():
+    """质检上下文只能包含本轮用户问题，不能混入历史轮次的用户消息。
+    否则质检员会被上一轮对话的话题干扰，误判当前回复（实测日志里
+    verifier 输入出现多条 HumanMessage）"""
+    mock_llm = MagicMock()
+    structured = MagicMock()
+    structured.ainvoke = AsyncMock(return_value=Verdict(is_accurate=True, issues=""))
+    mock_llm.with_structured_output.return_value = structured
+
+    # 模拟含历史轮次的消息序列：上一轮 user/assistant + 本轮 user/assistant
+    messages = [
+        HumanMessage(content="上一轮问题：查一下 7 月的账单"),
+        AIMessage(content="上一轮回答：7月有2笔"),
+        HumanMessage(content="本轮问题：我上个月花了多少钱？"),
+        AIMessage(content="本轮回答：上个月花了 70 元"),
+    ]
+    await _run_verdict(mock_llm, messages)
+
+    call_messages = structured.ainvoke.call_args.args[0]
+    remaining = call_messages[1:]
+    # 只保留最后一个 HumanMessage（本轮问题），历史轮次的用户消息被丢弃
+    users = [m for m in remaining if isinstance(m, HumanMessage)]
+    assert len(users) == 1
+    assert users[0].content == "本轮问题：我上个月花了多少钱？"
+
+
 def test_agent_state_declares_verification_result():
     """verification_result 必须在状态 schema 中声明，否则 LangGraph 会静默丢弃该键"""
     graph = build_agent_graph(MagicMock())
