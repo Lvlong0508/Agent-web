@@ -127,6 +127,13 @@ class ChatService:
                 # 标题会被当成回复 token 拼进气泡内容里
                 if metadata.get("langgraph_node") != "agent":
                     continue
+                # 过滤工具调用轮：agent 决定调用工具时产出的 chunk 带 tool_call_chunks，
+                # 这轮 content 通常是"正在查询..."这类中间说明文字，不是最终回答，
+                # 若收集会污染回复（且工具执行完 agent 还会再跑一轮产出真正的回答）。
+                # 显式判空：无工具调用的 chunk 该属性为 None 或空列表；用
+                # `if chunk.tool_call_chunks:` 会把 MagicMock（truthy）误判为有调用
+                if chunk.tool_call_chunks is not None and len(chunk.tool_call_chunks) > 0:
+                    continue
                 token = chunk.content if isinstance(chunk.content, str) else ""
                 if token:
                     full_response += token

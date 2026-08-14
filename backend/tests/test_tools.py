@@ -14,6 +14,7 @@ from app.config.settings import settings
 from app.middleware.mysql import Base, SessionLocal, engine
 from app.models.expense import Expense
 from app.services.agent_graph import build_agent_graph
+from app.services.chat_service import ChatService
 from app.tools import get_tools
 from app.tools.expense_tool import build_expense_tools
 
@@ -187,3 +188,77 @@ async def test_contextvar_propagates_into_agent_tools():
         ).scalars().all()
     assert len(rows) == 1
     assert rows[0].category == "food"
+
+
+@pytest.mark.asyncio
+async def test_agent_tool_loop_returns_final_reply_and_filters_mid_round():
+    """回归测试：tools 执行后必须回到 agent 再跑一轮产出最终回复，
+    且 chat_stream 不得把工具调用轮的中间说明文字混入流式回复。
+
+    背景：曾存在两个 bug——
+    1. 图缺 tools→agent 边，工具执行完直接结束，最终回复永不产出；
+    2. chat_stream 收集了工具调用轮的 content（如"正在查询..."），污染回复。
+    """
+    conv = MagicMock()
+    conv.title = "已有标题"
+    conv_repo = MagicMock()
+    conv_repo.get_by_id = AsyncMock(return_value=conv)
+    conv_repo.update_title = AsyncMock(return_value=None)
+
+    tools = build_expense_tools(SessionLocal)
+    graph = build_agent_graph(conv_repo, tools=tools)
+
+    msg_repo = MagicMock()
+    msg_repo.create = AsyncMock(return_value=None)
+    msg_repo.list_by_conversation = AsyncMock(
+        return_value=[MagicMock(role="user", content="查一下账单")]
+    )
+
+    # 第一轮：agent 决定调用工具（带中间说明文字）；第二轮：基于工具结果的最终回复
+    tool_call_msg = AIMessage(
+        content="正在查询账单...",  # 中间说明文字，不应进入最终回复
+        tool_calls=[{
+            "name": "list_expenses",
+            "args": {"page": 1, "page_size": 5},
+            "id": "call_1",
+            "type": "tool_call",
+        }],
+    )
+    final_msg = AIMessage(content="你共有 3 条账单")
+
+    agent_call_count = {"n": 0}
+
+    def fake_create_llm(streaming=True, model="", enable_thinking=True, max_tokens=None):
+        if not streaming:
+            return GenericFakeChatModel(messages=iter([AIMessage(content='"标题"')]))
+        agent_call_count["n"] += 1
+        if agent_call_count["n"] == 1:
+            return ToolAwareFakeChatModel(messages=iter([tool_call_msg]))
+        return ToolAwareFakeChatModel(messages=iter([final_msg]))
+
+    service = ChatService(MagicMock(), graph=graph)
+    service.msg_repo = msg_repo
+    service.conv_repo = conv_repo
+
+    token = current_user_id.set("user-loop")
+    try:
+        events = []
+        with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
+            async for line in service.chat_stream(
+                "c1", "查一下账单", settings.MODEL_OLLAMA, thinking=False
+            ):
+                events.append(line)
+    finally:
+        current_user_id.reset(token)
+
+    # 1. 最终回复 token 必须被推送（图跑完了 tools → agent 第二轮）
+    token_text = "".join(
+        line[len("data: "):].rstrip("\n\n") for line in events
+        if line.startswith("data: ")
+    )
+    assert "你共有 3 条账单" in token_text
+    # 2. 工具调用轮的中间说明文字不得进入回复流
+    assert "正在查询账单" not in token_text
+    # 3. 保存的 assistant 内容也必须是干净的最终回复
+    saved = msg_repo.create.call_args_list[-1][0][0]
+    assert saved.content == "你共有 3 条账单"

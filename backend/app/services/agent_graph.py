@@ -151,4 +151,8 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
         should_continue,
         {"tools": "tools", END: END},
     )
+    # 工具执行完必须回到 agent 再跑一轮：agent 拿到工具结果后生成最终回复。
+    # 若不连这条边，图在 tools 节点后直接结束，最终回复永远不会产出，
+    # 且工具调用轮次里 LLM 输出的中间说明文字（如"正在查询..."）会被误收集成回复。
+    graph.add_edge("tools", "agent")
     return graph.compile()
