@@ -131,8 +131,9 @@ def test_rewrite_prompt_tells_agent_to_reorganize():
     # 声明质检员身份与中间人角色，防止 agent 把质检员当用户
     assert "质检员" in prompt
     assert "你和用户之间" in prompt
-    # 硬性禁令：不道歉、不提及质检过程（重写轮用户端不可见，道歉没必要）
+    # 硬性禁令：不道歉（对用户也不道歉）、不提及质检过程（重写轮用户端不可见）
     assert "不要道歉" in prompt
+    assert "对用户也不要道歉" in prompt
     assert "不要提及质检过程" in prompt
     assert "未通过" not in prompt
     # 强制数据类问题重新调用工具，堵住"凭记忆编造"的二次机会
