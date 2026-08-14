@@ -149,7 +149,7 @@ def test_verify_prompt_each_data_needs_tool_origin():
     能在本轮工具结果中找到对应来源；若涉及某类数据但本轮无该类数据的工具结果，
     视为无依据，按规则4处理。堵住"调无关工具（如 get_now_time）制造有 tool
     结果假象、再凭记忆编造账单数据"的漏洞（用户对抗式审查发现）"""
-    assert "对应来源" in VERIFY_PROMPT
+    assert "找到来源" in VERIFY_PROMPT
     assert "无依据" in VERIFY_PROMPT or "无有效工具依据" in VERIFY_PROMPT
 
 
@@ -158,7 +158,24 @@ def test_verify_prompt_irrelevant_tool_is_not_valid_evidence():
     却只调了获取时间的工具，视同无有效工具调用，判 false"""
     assert "无关" in VERIFY_PROMPT
     assert "获取时间" in VERIFY_PROMPT
-    assert "视同无有效工具依据" in VERIFY_PROMPT or "无有效工具依据" in VERIFY_PROMPT
+    assert "无有效工具" in VERIFY_PROMPT or "无依据" in VERIFY_PROMPT
+
+
+def test_verify_prompt_no_effective_evidence_when_not_derivable():
+    """质检提示词规则4必须覆盖第三种情形：虽有相关工具调用，但候选回复中的
+    数据既非直接来自工具结果、也无法由相关工具结果正确推导（如调了账单工具
+    却报个凭空数字）——同样判不准确（用户对抗式审查：规则0引用规则4的承接）"""
+    assert "既非直接来自工具结果" in VERIFY_PROMPT
+    assert "正确推导" in VERIFY_PROMPT
+
+
+def test_verify_prompt_tool_failure_requires_evidence():
+    """质检提示词例外必须明确："工具调用失败"必须有本轮 tool 消息作为证据——
+    若本轮无 tool 消息、或 tool 消息显示调用成功，则不适用失败豁免。
+    堵住"根本没调工具却谎称调用失败"的漏洞（用户对抗式审查）"""
+    assert "调用失败" in VERIFY_PROMPT
+    assert "tool 消息" in VERIFY_PROMPT
+    assert "表明调用失败" in VERIFY_PROMPT
 
 
 def test_verify_prompt_distinguishes_category_and_item_count():
