@@ -14,6 +14,7 @@ class AgentState(MessagesState):
     """agent 图的共享状态：消息列表（继承）+ 当前对话 ID + 模型选择名 + 新生成的标题 + 思考开关"""
     conv_id: str
     # 注意：TypedDict 状态不应用类属性默认值，缺省回退逻辑在节点内用 state.get 实现
+    user_id: str  # 当前请求用户 ID：由 chat_service 注入，图节点查询/写入按用户隔离
     model: str
     # 标题节点产出的新标题：必须声明在状态 schema 中，stream_mode="updates"
     # 才会把这个字段随节点输出一起推给调用方（未声明的键会被 LangGraph 过滤）
@@ -90,7 +91,8 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
 
     # 标题生成节点：标题为空则生成并写回数据库，新标题放入状态供上层推送前端
     async def generate_title_node(state: AgentState) -> dict:
-        conv = await conv_repo.get_by_id(state["conv_id"])
+        # get_by_id 带 user_id 参数：按"对话 ID + 归属用户"查询，防越权访问他人对话
+        conv = await conv_repo.get_by_id(state["conv_id"], state["user_id"])
         title = ""
         try:
             title = await _generate_title_if_empty(

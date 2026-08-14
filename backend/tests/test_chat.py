@@ -28,7 +28,11 @@ def user_context():
 @pytest.fixture
 def chat_service(mock_db):
     """返回注入 mock db 的 ChatService"""
-    return ChatService(mock_db)
+    service = ChatService(mock_db)
+    # 全链路落库在旧测试中不关心，统一 mock 掉 create，避免调用真实集合
+    service.agent_run_repo = MagicMock()
+    service.agent_run_repo.create = AsyncMock(return_value=None)
+    return service
 
 
 @pytest.mark.asyncio

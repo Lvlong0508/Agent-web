@@ -13,7 +13,7 @@ import './Chat.css'
 
 const {
   conversations, activeConvId, loadingList,
-  messages, inputText, sending, error, selectedModel,
+  messages, inputText, sending, selectedModel,
   thinking, toggleThinking,
   searchQuery, filteredConversations, currentTitle,
   showScrollBtn, listening, scrollContainer,
@@ -112,7 +112,6 @@ const activeModelFull = computed(() =>
             <!-- 正文为空时隐藏气泡：思考阶段不显示空灰泡，token 到达后自动出现 -->
             <div v-if="msg.content" class="message" :class="msg.role">{{ msg.content }}</div>
           </div>
-          <div v-if="error" class="message error">{{ error }}</div>
         </div>
 
         <!-- 底部输入坞：包含"回到底部"箭头与输入框、工具行 -->
