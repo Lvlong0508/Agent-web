@@ -42,6 +42,16 @@ def test_verify_prompt_explicitly_targets_last_assistant():
     assert "assistant" in VERIFY_PROMPT
 
 
+def test_verify_prompt_correcting_user_is_not_inaccurate():
+    """质检提示词必须明确：用户可能陈述错误前提（如"我记了3笔"），
+    工具返回数据才是唯一事实依据；回复基于工具数据纠正用户是正确行为，
+    不能判为不准确（用户实测：agent 答对6笔仍被连续拦截）"""
+    assert "错误前提" in VERIFY_PROMPT
+    assert "纠正为6笔" in VERIFY_PROMPT
+    assert "唯一事实依据" in VERIFY_PROMPT
+    assert "不算不准确" in VERIFY_PROMPT
+
+
 def test_rewrite_prompt_tells_agent_to_reorganize():
     """重写轮指令必须重置前提（回答已被清空）、声明质检员身份、禁止道歉，
     否则 agent 会暴露"上一条回复未通过校验"这类过程性话术或输出道歉（实测出现"非常抱歉"）"""
