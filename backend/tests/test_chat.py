@@ -1,5 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
+from langchain_core.messages import AIMessage as RealAIMessage
 from langchain_core.messages import SystemMessage
 from pydantic import ValidationError
 
@@ -396,6 +397,41 @@ async def test_chat_stream_pushes_final_after_rewrite(chat_service):
     # final 事件携带最终版完整文本
     assert any('"final": "最终版回复"' in t for t in tokens)
     # assistant 保存的是最终版（而非首轮残稿）
+    calls = [c.args[0] for c in chat_service.msg_repo.create.call_args_list]
+    assistant_saved = [m for m in calls if m.role == "assistant"][0]
+    assert assistant_saved.content == "最终版回复"
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_handles_rewrite_round_emitting_full_aimessage(chat_service):
+    """重写轮非流式 LLM 产出完整 AIMessage（无 tool_call_chunks）时不应崩溃"""
+    conv = Conversation(_id="c1", user_id="anonymous")
+    chat_service.conv_repo.get_by_id = AsyncMock(return_value=conv)
+    chat_service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
+    chat_service.msg_repo.create = AsyncMock(return_value=None)
+
+    first_chunk = MagicMock()
+    first_chunk.content = "首次回复"
+    first_chunk.tool_call_chunks = []
+    # 重写轮：真实非流式产出的是完整 AIMessage，没有 tool_call_chunks 属性
+    rewrite_msg = RealAIMessage(content="最终版回复")
+
+    async def fake_astream(input, **kwargs):
+        """首轮 token → retry → 重写轮完整 AIMessage → verifier pass"""
+        yield ("messages", (first_chunk, {"langgraph_node": "agent"}))
+        yield ("updates", {"verifier": {"verification_result": "retry"}})
+        yield ("messages", (rewrite_msg, {"langgraph_node": "agent"}))
+        yield ("updates", {"verifier": {"verification_result": "pass"}})
+
+    chat_service.graph = MagicMock()
+    chat_service.graph.astream = fake_astream
+
+    tokens = []
+    async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_DASHSCOPE_QWEN):
+        tokens.append(chunk)
+
+    # 不崩溃且最终版正确推送并落库
+    assert any('"final": "最终版回复"' in t for t in tokens)
     calls = [c.args[0] for c in chat_service.msg_repo.create.call_args_list]
     assistant_saved = [m for m in calls if m.role == "assistant"][0]
     assert assistant_saved.content == "最终版回复"
