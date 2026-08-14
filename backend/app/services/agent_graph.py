@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from app.config.settings import settings
 from app.repositories.conversation_repo import ConversationRepo
-from app.services.prompts import build_title_prompt, VERIFY_PROMPT
+from app.services.prompts import build_rewrite_prompt, build_title_prompt, VERIFY_PROMPT
 
 # 模块级日志器：供节点异常降级等场景记录可诊断信息，便于线上排查
 logger = logging.getLogger(__name__)
@@ -143,8 +143,14 @@ def _decide_verification(verdict: Verdict, state: AgentState) -> dict:
 async def _run_verdict(llm, messages) -> Verdict:
     """调用结构化输出 LLM，基于完整对话（含工具结果与候选回复）得到验证结论"""
     structured = llm.with_structured_output(Verdict)
-    # 验证提示词作为 SystemMessage 前置注入，让 LLM 明确校验职责
-    return await structured.ainvoke([SystemMessage(content=VERIFY_PROMPT), *messages])
+    # 过滤掉角色设定 SystemMessage（如 SYSTEM_PROMPT"你是小励"）：这些不是对话
+    # 内容，若保留会与 VERIFY_PROMPT 形成两条 SystemMessage 连排，模型会把角色
+    # 设定误当成对话参与者，导致校验对象搞错（实测 bug：把"小励"当成了用户）。
+    # 只保留 user/assistant/tool 对话消息，再前置验证提示词
+    dialogue_messages = [m for m in messages if not isinstance(m, SystemMessage)]
+    return await structured.ainvoke(
+        [SystemMessage(content=VERIFY_PROMPT), *dialogue_messages]
+    )
 
 
 def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
@@ -221,12 +227,13 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
             llm = llm.bind_tools(tools)
         messages = state["messages"]
         if is_rewrite:
-            # 把验证意见注入上下文，agent 才知道错在哪、如何针对性修正
+            # 把验证反馈注入重写指令，agent 据此重新组织语言直接作答。
+            # 指令刻意不写"你上一条未通过校验"这类过程性说明：写了会让 agent
+            # 在回复里道歉解释（实测出现"非常抱歉，刚才的回复确实出现了严重的
+            # 错误"），而重写结果是要展示给用户的最终版，话术必须自然衔接
             messages = [
                 *messages,
-                HumanMessage(
-                    content=f"你的上一条回复未通过准确性校验，请根据以下意见修正后重新作答：{feedback}"
-                ),
+                HumanMessage(content=build_rewrite_prompt(feedback)),
             ]
         response = await llm.ainvoke(messages)
         return {"messages": [response]}

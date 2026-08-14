@@ -103,6 +103,8 @@ async def test_chat_stream_respects_current_user(chat_service):
 
         async def fake_astream(input, **kwargs):
             yield ("messages", (mock_chunk, mock_meta))
+            # 验证通过：推送最终版（token 缓冲后经 final 事件一次性给出）
+            yield ("updates", {"verifier": {"verification_result": "pass"}})
 
         chat_service.graph = MagicMock()
         chat_service.graph.astream = fake_astream
@@ -112,7 +114,7 @@ async def test_chat_stream_respects_current_user(chat_service):
             "c1", "hello", settings.MODEL_DASHSCOPE_QWEN
         ):
             tokens.append(chunk)
-        assert any("你好" in t for t in tokens)
+        assert any('"final": "你好"' in t for t in tokens)
     finally:
         current_user_id.reset(token)
 
@@ -140,6 +142,7 @@ async def test_chat_stream_saves_messages(chat_service):
         # 新的流模式为列表 ["messages", "updates"]，产出物统一为 (mode, data) 元组：
         # messages 模式下 data 是 (chunk, metadata)，updates 模式下是节点增量状态
         yield ("messages", (mock_chunk, mock_meta))
+        yield ("updates", {"verifier": {"verification_result": "pass"}})
 
     chat_service.graph = MagicMock()
     chat_service.graph.astream = fake_astream
@@ -148,8 +151,8 @@ async def test_chat_stream_saves_messages(chat_service):
     async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_DASHSCOPE_QWEN):
         tokens.append(chunk)
 
-    # 应收到 SSE token 数据和 [DONE]
-    assert any("你好" in t for t in tokens)
+    # 验证通过后经 final 事件收到完整回复，以及结束标志 [DONE]
+    assert any('"final": "你好"' in t for t in tokens)
     assert any("[DONE]" in t for t in tokens)
     # user 和 assistant 消息各保存一次
     assert chat_service.msg_repo.create.call_count == 2
@@ -208,9 +211,10 @@ async def test_chat_stream_pushes_generated_title(chat_service):
     mock_meta = {"langgraph_node": "agent"}
 
     async def fake_astream(input, **kwargs):
-        """假的 graph.astream：先发 generate_title 更新，再发 agent token"""
+        """假的 graph.astream：先发 generate_title 更新，再发 agent token + 验证通过"""
         yield ("updates", {"generate_title": {"generated_title": "新标题"}})
         yield ("messages", (mock_chunk, mock_meta))
+        yield ("updates", {"verifier": {"verification_result": "pass"}})
 
     chat_service.graph = MagicMock()
     chat_service.graph.astream = fake_astream
@@ -219,9 +223,9 @@ async def test_chat_stream_pushes_generated_title(chat_service):
     async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_DASHSCOPE_QWEN):
         tokens.append(chunk)
 
-    # 标题事件（{"title": "新标题"}）与 token 都应推送
+    # 标题事件与最终版回复都应推送
     assert any('"title": "新标题"' in t for t in tokens)
-    assert any("你好" in t for t in tokens)
+    assert any('"final": "你好"' in t for t in tokens)
 
 
 @pytest.mark.asyncio
@@ -237,9 +241,10 @@ async def test_chat_stream_ignores_empty_title_update(chat_service):
     mock_meta = {"langgraph_node": "agent"}
 
     async def fake_astream(input, **kwargs):
-        """假的 graph.astream：generate_title 返回空标题，仅产出一条 token"""
+        """假的 graph.astream：generate_title 返回空标题，仅产出一条 token + 验证通过"""
         yield ("updates", {"generate_title": {"generated_title": ""}})
         yield ("messages", (mock_chunk, mock_meta))
+        yield ("updates", {"verifier": {"verification_result": "pass"}})
 
     chat_service.graph = MagicMock()
     chat_service.graph.astream = fake_astream
@@ -248,9 +253,9 @@ async def test_chat_stream_ignores_empty_title_update(chat_service):
     async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_DASHSCOPE_QWEN):
         tokens.append(chunk)
 
-    # 不应出现标题事件，只有 token 和 [DONE]
+    # 不应出现标题事件，最终版经 final 事件给出
     assert not any('"title"' in t for t in tokens)
-    assert any("你好" in t for t in tokens)
+    assert any('"final": "你好"' in t for t in tokens)
 
 
 @pytest.mark.asyncio
@@ -269,9 +274,10 @@ async def test_chat_stream_filters_title_token(chat_service):
     agent_chunk.content = "回复内容"
 
     async def fake_astream(input, **kwargs):
-        """假的 graph.astream：先弹标题 chunk，再弹真正的回复 token"""
+        """假的 graph.astream：先弹标题 chunk，再弹真正的回复 token + 验证通过"""
         yield ("messages", (title_chunk, {"langgraph_node": "generate_title"}))
         yield ("messages", (agent_chunk, {"langgraph_node": "agent"}))
+        yield ("updates", {"verifier": {"verification_result": "pass"}})
 
     chat_service.graph = MagicMock()
     chat_service.graph.astream = fake_astream
@@ -280,8 +286,8 @@ async def test_chat_stream_filters_title_token(chat_service):
     async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_DASHSCOPE_QWEN):
         tokens.append(chunk)
 
-    # 只应收到 agent 节点的回复，标题 token 不得混入
-    assert any("回复内容" in t for t in tokens)
+    # 最终版只应含 agent 节点的回复，标题 token 不得混入
+    assert any('"final": "回复内容"' in t for t in tokens)
     assert not any("新标题" in t for t in tokens)
 
 
@@ -345,10 +351,11 @@ async def test_chat_stream_pushes_rewriting_event(chat_service):
     rewrite_chunk.tool_call_chunks = []
 
     async def fake_astream(input, **kwargs):
-        """首轮流式 token → verifier retry → 重写轮 token（非流式弹出完整 chunk）"""
+        """首轮流式 token → verifier retry → 重写轮 token → verifier pass"""
         yield ("messages", (first_chunk, {"langgraph_node": "agent"}))
         yield ("updates", {"verifier": {"verification_result": "retry"}})
         yield ("messages", (rewrite_chunk, {"langgraph_node": "agent"}))
+        yield ("updates", {"verifier": {"verification_result": "pass"}})
 
     chat_service.graph = MagicMock()
     chat_service.graph.astream = fake_astream
@@ -359,10 +366,9 @@ async def test_chat_stream_pushes_rewriting_event(chat_service):
 
     # rewriting 事件已推送
     assert any('"rewriting"' in t for t in tokens)
-    # 重写轮的 token 不得推给前端
-    assert not any("重写回复" in t for t in tokens)
-    # 首轮流式 token 正常推送
-    assert any("首次回复" in t for t in tokens)
+    # 首轮的 token 不推前端（验证通过前缓冲）；重写轮内容经 final 事件推送
+    assert not any('"token": "首次回复"' in t for t in tokens)
+    assert any('"final": "重写回复"' in t for t in tokens)
 
 
 @pytest.mark.asyncio

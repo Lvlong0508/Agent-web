@@ -152,8 +152,9 @@ class ChatService:
         #    - "updates"：每个节点结束后返回的增量状态，用于拿到 generate_title
         #      节点生成的新标题并实时推给前端（否则侧边栏要手动刷新才更新）
         full_response = ""  # 存储返回的最终回复
-        rewrite_happened = False  # 是否发生过重写：发生过的重写轮 token 不推前端
-        latest_reply = ""  # 重写轮累积的最终版文本（非流式弹出，需收集备选）
+        # 待定回复：当前轮（首轮或重写轮）累积的文本。验证通过前一律不推给前端，
+        # 否则不准确的首轮内容会被流式显示后才被替换（实测体验差）
+        pending_reply = ""
         # 全链路收集：先放入本次用户请求，运行过程中逐节点追加。
         # 用户端 messages 集合保存精简视图（user/assistant），agent_runs
         # 保存完整回放（含工具调用参数与结果），两者各自独立落库
@@ -193,13 +194,9 @@ class ChatService:
                     token = chunk.content if isinstance(chunk.content, str) else ""
                     if not token:
                         continue
-                    if rewrite_happened:
-                        # 重写轮的 token 不推前端（首轮已推送，重推会造成内容闪烁），
-                        # 只累积为最终版备选；验证通过后由 final 事件推送完整文本
-                        latest_reply += token
-                        continue
-                    full_response += token
-                    yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+                    # 验证通过前不推送 token：全部累积进待定回复，
+                    # 由 verifier 判定后通过 final 事件一次性推送（见 updates 分支）
+                    pending_reply += token
                 elif mode == "updates":
                     # data 形如 {"generate_title": {"generated_title": "标题"}}；
                     # 仅在标题节点真生成了标题时（非空）推送事件，避免无谓消息
@@ -213,17 +210,18 @@ class ChatService:
                     # 收集工具执行结果（ToolMessage）
                     for m in data.get("tools", {}).get("messages", []):
                         trace_messages.append(_langchain_msg_to_trace(m))
-                    # 验证节点结果：retry → 通知前端进入重写；pass → 推送最终版；
-                    # fail → 超限返回固定文案（不再循环）
+                    # 验证节点结果：retry → 通知前端进入重写并清空待定回复；
+                    # pass → 推送最终版；fail → 超限返回固定文案（不再循环）
                     result = data.get("verifier", {}).get("verification_result")
                     if result == "retry":
-                        rewrite_happened = True
+                        # 需重写：清空当前累积，重写轮会产出全新完整回复（不能拼接）
+                        pending_reply = ""
                         yield f"data: {json.dumps({'rewriting': True}, ensure_ascii=False)}\n\n"
                     elif result == "pass":
-                        if rewrite_happened:
-                            # 发生过重写：最终版以完整文本推送（前端替换占位文案后打字机渲染）
-                            full_response = latest_reply
-                            yield f"data: {json.dumps({'final': full_response}, ensure_ascii=False)}\n\n"
+                        # 验证通过（含未重写直接通过）：推送完整最终版文本，
+                        # 前端替换占位/空气泡后打字机渲染
+                        full_response = pending_reply
+                        yield f"data: {json.dumps({'final': full_response}, ensure_ascii=False)}\n\n"
                     elif result == "fail":
                         # 多次重写仍不准：返回固定文案，避免无限循环拖垮响应
                         full_response = REPLY_ON_VERIFY_FAILED

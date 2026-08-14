@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END
 
 from app.config.settings import settings
@@ -17,7 +17,7 @@ from app.services.agent_graph import (
     _decide_verification,
     _run_verdict,
 )
-from app.services.prompts import VERIFY_PROMPT
+from app.services.prompts import SYSTEM_PROMPT, VERIFY_PROMPT
 
 
 @pytest.fixture
@@ -476,6 +476,34 @@ async def test_run_verdict_injects_verify_prompt_and_calls_structured_llm():
     assert VERIFY_PROMPT in call_messages[0].content
     # 原始对话消息保持在提示词之后
     assert call_messages[1] == messages[0]
+
+
+@pytest.mark.asyncio
+async def test_run_verdict_filters_system_role_message():
+    """_run_verdict 必须过滤掉角色设定 SystemMessage（如 SYSTEM_PROMPT"你是小励"），
+    只保留 user/assistant/tool 对话消息交给质检员；否则两条 SystemMessage 连排
+    会让模型把角色设定当成对话参与者，导致校验对象搞错（用户实测 bug）"""
+    mock_llm = MagicMock()
+    structured = MagicMock()
+    structured.ainvoke = AsyncMock(return_value=Verdict(is_accurate=True, issues=""))
+    mock_llm.with_structured_output.return_value = structured
+
+    # 模拟真实场景：state["messages"] 开头有 chat_service 注入的 SYSTEM_PROMPT
+    messages = [
+        SystemMessage(content=SYSTEM_PROMPT),
+        HumanMessage(content="现在几点了？"),
+        AIMessage(content="候选回复"),
+    ]
+    result = await _run_verdict(mock_llm, messages)
+
+    assert result.is_accurate is True
+    call_messages = structured.ainvoke.call_args.args[0]
+    # 除 VERIFY_PROMPT 外不再有第二条 SystemMessage（角色设定被过滤）
+    system_msgs = [m for m in call_messages if isinstance(m, SystemMessage)]
+    assert len(system_msgs) == 1
+    assert system_msgs[0].content == VERIFY_PROMPT
+    # 对话消息完整保留且顺序不变
+    assert [type(m) for m in call_messages[1:]] == [HumanMessage, AIMessage]
 
 
 def test_agent_state_declares_verification_result():
