@@ -93,6 +93,11 @@ export function sendMessageStream(
   http.post(`/chat/conversations/${convId}/messages`, { content, model, thinking }, {
     responseType: 'text',
     signal: controller.signal,
+    // SSE 是长连接流式响应：全局实例默认 timeout: 10000 会让超过 10 秒的
+    // 长回复中途报 'timeout of 10000ms exceeded'（标题短秒回不触发，
+    // 但完整回复往往超过 10 秒）。这里覆盖为 60000（1 分钟）：
+    // 保留超时保护兜底（网络挂死不至于无限等待），同时给足长回复时间
+    timeout: 60000,
     // 请求头（含 X-User-Id）由 index.ts 的拦截器统一附加，这里不再手动处理
     onDownloadProgress: (progressEvent) => {
       // 浏览器端 XHR 的进度事件：responseText 是累计收到的响应文本。
