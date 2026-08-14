@@ -163,3 +163,37 @@ async def test_chat_stream_saves_full_trace_with_tools():
         assert run.messages[3]["content"] == "你共有 0 条账单"
     finally:
         current_user_id.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_records_error_run():
+    """运行抛异常时：run 记录 status=error 并保存错误信息"""
+    token = current_user_id.set("anonymous")
+    try:
+        conv = Conversation(_id="c1", user_id="anonymous")
+        service = ChatService(MagicMock())
+        service.agent_run_repo = MagicMock()
+        service.agent_run_repo.create = AsyncMock(return_value=None)
+        service.conv_repo.get_by_id = AsyncMock(return_value=conv)
+        service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
+        service.msg_repo.create = AsyncMock(return_value=None)
+
+        async def fake_astream(input, **kwargs):
+            # 先产出一条 agent 中间输出，然后模拟模型调用崩溃
+            yield ("updates", {"agent": {"messages": [AIMessage(content="正在查询...")]}})
+            raise RuntimeError("模型调用超时")
+
+        service.graph = MagicMock()
+        service.graph.astream = fake_astream
+
+        with pytest.raises(RuntimeError):
+            async for _ in service.chat_stream("c1", "你好", settings.MODEL_OLLAMA):
+                pass
+
+        run = service.agent_run_repo.create.call_args[0][0]
+        assert run.status == "error"
+        assert "模型调用超时" in run.error
+        # 已收集到的消息仍保留（用户消息 + 中途 agent 输出）
+        assert [m["role"] for m in run.messages] == ["user", "assistant"]
+    finally:
+        current_user_id.reset(token)
