@@ -17,7 +17,7 @@ from app.services.agent_graph import (
     _decide_verification,
     _run_verdict,
 )
-from app.services.prompts import SYSTEM_PROMPT, VERIFY_PROMPT
+from app.services.prompts import SYSTEM_PROMPT, VERIFY_PROMPT, build_rewrite_prompt
 
 
 @pytest.fixture

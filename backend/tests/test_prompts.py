@@ -53,7 +53,7 @@ def test_verify_prompt_correcting_user_is_not_inaccurate():
 
 
 def test_rewrite_prompt_tells_agent_to_reorganize():
-    """重写轮指令必须重置前提（回答已被清空）、声明质检员身份、禁止道歉，
+    """重写轮指令必须重置前提（回答已被清空）、声明质检员身份、禁止对质检员道歉，
     否则 agent 会暴露"上一条回复未通过校验"这类过程性话术或输出道歉（实测出现"非常抱歉"）"""
     prompt = build_rewrite_prompt("金额错误")
     # 重置前提：清空回答，让 agent 全新开始，不纠结之前的错误
@@ -61,8 +61,9 @@ def test_rewrite_prompt_tells_agent_to_reorganize():
     # 声明质检员身份与中间人角色，防止 agent 把质检员当用户
     assert "质检员" in prompt
     assert "你和用户之间" in prompt
-    # 硬性禁令：不道歉、不提及质检过程
-    assert "不要对我道歉" in prompt
+    # 硬性禁令：不得对质检员道歉（可对用户道歉）、不提及质检过程
+    assert "不要对质检员我道歉" in prompt
+    assert "可以对用户道歉" in prompt
     assert "未通过" not in prompt
     # 反馈正确注入
     assert "金额错误" in prompt
