@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+﻿from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
@@ -96,7 +96,7 @@ async def test_astream_runs_full_graph_with_title_and_tokens():
     full_text = ""
     # verifier 节点真实调用 _run_verdict 需要结构化输出，fake LLM 不支持，
     # 这里 patch 成直接返回"准确"的 Verdict，让验证链路走 pass 正常结束
-    async def fake_run_verdict(llm, messages):
+    async def fake_run_verdict(llm, messages, history_reference=None):
         return Verdict(is_accurate=True, issues="")
 
     with patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict):
@@ -155,7 +155,7 @@ async def test_title_failure_does_not_block_chat():
     graph = build_agent_graph(conv_repo)
     full_text = ""
     # verifier 节点真实调用 _run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
-    async def fake_run_verdict(llm, messages):
+    async def fake_run_verdict(llm, messages, history_reference=None):
         return Verdict(is_accurate=True, issues="")
 
     with patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict):
@@ -200,7 +200,7 @@ async def test_generate_title_node_exposes_title_in_updates():
     graph = build_agent_graph(conv_repo)
     updates = []
     # verifier 节点真实调用 _run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
-    async def fake_run_verdict(llm, messages):
+    async def fake_run_verdict(llm, messages, history_reference=None):
         return Verdict(is_accurate=True, issues="")
 
     with patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict):
@@ -303,7 +303,7 @@ async def test_agent_node_thinking_switch():
 
     graph = build_agent_graph(conv_repo)
     # verifier 节点真实调用 _run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
-    async def fake_run_verdict(llm, messages):
+    async def fake_run_verdict(llm, messages, history_reference=None):
         return Verdict(is_accurate=True, issues="")
 
     with patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict):
@@ -349,7 +349,7 @@ async def test_agent_node_thinking_defaults_off():
 
     graph = build_agent_graph(conv_repo)
     # verifier 节点真实调用 _run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
-    async def fake_run_verdict(llm, messages):
+    async def fake_run_verdict(llm, messages, history_reference=None):
         return Verdict(is_accurate=True, issues="")
 
     with patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict):
@@ -394,7 +394,7 @@ async def test_astream_defaults_to_ollama_without_model():
 
     graph = build_agent_graph(conv_repo)
     # verifier 节点真实调用 _run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
-    async def fake_run_verdict(llm, messages):
+    async def fake_run_verdict(llm, messages, history_reference=None):
         return Verdict(is_accurate=True, issues="")
 
     with patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict):
@@ -618,6 +618,31 @@ def test_build_verdict_input_keeps_only_current_round_tool_result():
     assert tool_contents == ["{\"total\": 2}"]
 
 
+def test_build_verdict_input_includes_history_reference():
+    """传 history_reference 时，质检输入包含完整精纯历史（含用户自我介绍等背景），
+    使质检员能理解基于记忆的回复（如称呼用户名），不会被误判"""
+    history = [
+        HumanMessage(content="我叫小明"),
+        AIMessage(content="好的，小明你好！"),
+        HumanMessage(content="我的账单是多少？"),  # 本轮 user 已在历史里
+    ]
+    run_messages = [
+        *history,
+        ToolMessage(content="{\"total\": 2}", name="list_expenses", tool_call_id="1"),
+        AIMessage(content="小明，你这个月有 2 笔支出"),
+    ]
+    reduced, serialized = _build_verdict_input(run_messages, history_reference=history)
+
+    # 参考历史（含自我介绍）进入质检输入
+    contents = [m.content for m in reduced]
+    assert "我叫小明" in contents
+    assert "好的，小明你好！" in contents
+    # 候选回复在最后
+    assert reduced[-1].content == "小明，你这个月有 2 笔支出"
+    # 工具结果也在
+    assert any(isinstance(m, ToolMessage) for m in reduced)
+
+
 def test_agent_state_declares_verification_result():
     """verification_result 必须在状态 schema 中声明，否则 LangGraph 会静默丢弃该键"""
     graph = build_agent_graph(MagicMock())
@@ -662,7 +687,7 @@ async def test_verifier_accurate_ends_graph():
     agent_llm = GenericFakeChatModel(messages=iter([AIMessage(content="回复")]))
 
     # verifier 的 LLM 调用被替换为直接返回 Verdict（避免真实结构化输出依赖）
-    async def fake_run_verdict(llm, messages):
+    async def fake_run_verdict(llm, messages, history_reference=None):
         return Verdict(is_accurate=True, issues="")
 
     graph = build_agent_graph(conv_repo)
@@ -733,7 +758,7 @@ async def test_verifier_retry_then_pass_loops_through_agent():
     # 第一次验证判不准，第二次判准确
     calls = {"n": 0}
 
-    async def fake_run_verdict(llm, messages):
+    async def fake_run_verdict(llm, messages, history_reference=None):
         calls["n"] += 1
         if calls["n"] == 1:
             return Verdict(is_accurate=False, issues="金额错误")
@@ -778,7 +803,7 @@ async def test_verifier_fail_when_retries_exhausted():
         return first_llm if streaming else rewrite_llm
 
     # 每次都判不准
-    async def fake_run_verdict(llm, messages):
+    async def fake_run_verdict(llm, messages, history_reference=None):
         return Verdict(is_accurate=False, issues="始终不准")
 
     graph = build_agent_graph(conv_repo)

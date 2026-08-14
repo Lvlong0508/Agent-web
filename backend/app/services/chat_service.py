@@ -168,6 +168,11 @@ class ChatService:
                     "user_id": user_id,  # 注入当前用户：图节点查询按用户隔离
                     "model": model,
                     "thinking": thinking,
+                    # 精纯历史参考（含本轮 user）：与传给 agent 的记忆一致，来自
+                    # MongoDB 的 user/assistant 消息，无工具轮/重写轮噪音。
+                    # 供质检员理解上下文（如历史里用户说过自己叫小明），
+                    # 避免质检员只看本轮而误判基于记忆的回复
+                    "history_reference": langchain_messages[1:],
                 },
                 stream_mode=["messages", "updates"],
             ):

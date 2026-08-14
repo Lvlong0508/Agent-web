@@ -40,6 +40,10 @@ class AgentState(MessagesState):
     # 发给质检员的完整输入（序列化消息列表）：必须声明才能经 updates 流推给
     # chat_service，用于全链路记录追加 role=input_verdict 条目（评估质检效果）
     verdict_input: list
+    # 精纯历史参考（含本轮 user）：与传给 agent 的记忆一致，来自 chat_service
+    # 从 MongoDB 拉取的 user/assistant 消息（无工具轮/重写轮噪音）。
+    # 供质检员理解上下文，避免只看本轮而误判基于记忆的回复
+    history_reference: list
 
 
 # 回复不准确时的最大重写次数：验证->重写->再验证循环的上限，防止无限循环拖慢响应
@@ -146,13 +150,17 @@ def _decide_verification(verdict: Verdict, state: AgentState) -> dict:
     }
 
 
-def _build_verdict_input(messages) -> tuple[list, list[dict]]:
+def _build_verdict_input(messages, history_reference: list | None = None) -> tuple[list, list[dict]]:
     """构造发给质检员的完整输入，返回（精简对话消息, 序列化输入）。
 
-    精简规则只保留三类消息，避免质检员被历史干扰：
-    - 本轮用户问题（候选回复之前最近的一条 HumanMessage）
-    - 工具结果（ToolMessage）
-    - 候选回复（最后一条无 tool_calls 的 assistant）
+    质检输入由两部分组成：
+    - 参考上下文：history_reference（精纯历史，含本轮 user，与传给 agent 的
+      记忆一致）。传了它，质检员就能理解基于历史记忆的回复（如历史里用户
+      说过自己叫小明）；不传则退化为只保留本轮用户问题。
+    - 本轮数据：候选回复（最后一条无 tool_calls 的 assistant）+ 本轮工具结果。
+
+    精简规则避免质检员被"互相矛盾的旧轮次/重写残稿"干扰（实测 bug：
+    质检员判词里已认定"与tool一致、回复准确"，却返回 is_accurate=False）。
 
     序列化输入供全链路记录（role=input_verdict），便于事后评估质检效果。
     """
@@ -181,16 +189,28 @@ def _build_verdict_input(messages) -> tuple[list, list[dict]]:
         if m is candidate:
             break
 
-    # 精简上下文：只保留本轮用户问题、本轮工具结果、候选回复三类消息，顺序按原文保持。
     # 本轮工具结果 = 位置在本轮用户问题之后、候选回复之前的 ToolMessage；
-    # 历史轮次的工具结果（在 user_index 之前）会干扰质检，必须丢弃。
-    # 带 tool_calls 的中间轮（"让我查询一下"）与已判错的旧轮次同样丢弃
-    reduced = [
+    # 历史轮次的工具结果（在 user_index 之前）会干扰质检，必须丢弃
+    current_tools = [
         m for idx, m in enumerate(dialogue_messages)
-        if (current_user_msg is not None and m is current_user_msg)
-        or (isinstance(m, ToolMessage) and idx > user_index)
-        or (candidate is not None and m is candidate)
+        if isinstance(m, ToolMessage) and idx > user_index
     ]
+
+    # 参考上下文：有 history_reference 用其完整精纯历史（含本轮 user），
+    # 否则退化为只保留本轮用户问题
+    if history_reference is not None:
+        reference = list(history_reference)
+    elif current_user_msg is not None:
+        reference = [current_user_msg]
+    else:
+        reference = []
+
+    # 精简上下文 = 参考上下文 + 本轮工具结果 + 候选回复，顺序按原文保持。
+    # 带 tool_calls 的中间轮（"让我查询一下"）与已判错的旧轮次不进入
+    reduced = [*reference, *current_tools]
+    if candidate is not None:
+        reduced.append(candidate)
+
     # 序列化完整输入（含前置 VERIFY_PROMPT），供全链路记录与日志
     serialized = [
         {"role": "system", "content": VERIFY_PROMPT},
@@ -205,15 +225,16 @@ def _build_verdict_input(messages) -> tuple[list, list[dict]]:
     return reduced, serialized
 
 
-async def _run_verdict(llm, messages) -> Verdict:
-    """调用结构化输出 LLM，基于"用户问题 + 工具结果 + 候选回复"得到验证结论。
+async def _run_verdict(llm, messages, history_reference: list | None = None) -> Verdict:
+    """调用结构化输出 LLM，基于"参考历史 + 本轮数据"得到验证结论。
 
-    只取这三类消息，丢弃其他历史：否则质检员会看到互相矛盾的多轮回复
-    （如首轮幻觉 320 元、重写轮 70 元），被历史干扰而误判正确回复不准确
-    （实测 bug：质检员判词里已认定"与tool一致、回复准确"，却返回 is_accurate=False）。
+    参考历史与传给 agent 的记忆一致（精纯 user/assistant），让质检员能理解
+    基于记忆的回复；本轮数据只取候选回复与工具结果，丢弃其他历史，避免
+    质检员被互相矛盾的多轮回复干扰（实测 bug：质检员判词里已认定"与tool一致、
+    回复准确"，却返回 is_accurate=False）。
     """
     structured = llm.with_structured_output(Verdict)
-    reduced, serialized = _build_verdict_input(messages)
+    reduced, serialized = _build_verdict_input(messages, history_reference)
     # 诊断日志：确认发给质检员的消息序列（SystemMessage 已过滤、旧轮次已丢弃）
     logger.info(
         "verifier 输入消息类型: %s",
@@ -278,9 +299,13 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
                 getattr(last_msg, "content", "")[:200],
                 len(tool_msgs),
             )
-            # 构造发给质检员的输入（同时拿到序列化版本，供全链路记录）
-            _, verdict_input = _build_verdict_input(state["messages"])
-            verdict = await _run_verdict(llm, state["messages"])
+            # 构造发给质检员的输入（同时拿到序列化版本，供全链路记录）。
+            # 传入精纯历史参考：质检员理解基于历史记忆的回复（如称呼用户名），
+            # 又不受工具轮/重写轮噪音干扰
+            _, verdict_input = _build_verdict_input(
+                state["messages"], state.get("history_reference")
+            )
+            verdict = await _run_verdict(llm, state["messages"], state.get("history_reference"))
             logger.info("verifier 判定: is_accurate=%s issues=%r", verdict.is_accurate, verdict.issues)
         except Exception as e:
             # 验证器调用失败（网络异常/模型不支持结构化输出等）不能拖垮主流程：

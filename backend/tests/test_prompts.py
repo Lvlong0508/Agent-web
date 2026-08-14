@@ -61,6 +61,13 @@ def test_verify_prompt_correcting_user_is_not_inaccurate():
     assert "不算不准确" in VERIFY_PROMPT
 
 
+def test_verify_prompt_history_reference_only_context():
+    """质检提示词必须明确：历史会话仅供参考（理解背景如用户名），
+    不能因助手依据历史背景作答而判不准确"""
+    assert "历史会话" in VERIFY_PROMPT
+    assert "仅供参考" in VERIFY_PROMPT
+
+
 def test_rewrite_prompt_tells_agent_to_reorganize():
     """重写轮指令必须重置前提（回答已被清空）、声明质检员身份、禁止对质检员道歉，
     否则 agent 会暴露"上一条回复未通过校验"这类过程性话术或输出道歉（实测出现"非常抱歉"）"""
