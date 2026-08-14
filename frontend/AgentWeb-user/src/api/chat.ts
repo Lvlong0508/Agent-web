@@ -27,9 +27,11 @@ export function getMessages(convId: string) {
 
 // --- 流式聊天（使用原生 fetch + ReadableStream，支持 SSE）---
 
-// 回调类型：收到 token / 标题 / 流结束 / 出错
+// 回调类型：收到 token / 标题 / 重写中 / 最终版 / 流结束 / 出错
 type TokenHandler = (token: string) => void
 type TitleHandler = (title: string) => void
+type RewritingHandler = () => void
+type FinalHandler = (text: string) => void
 type DoneHandler = () => void
 type ErrorHandler = (message: string) => void
 
@@ -51,6 +53,8 @@ type ErrorHandler = (message: string) => void
  * @param thinking - 是否开启深度思考（仅通义千问生效）
  * @param onToken - 收到每个 token 的回调
  * @param onTitle - 收到后端推送的对话标题的回调（首条消息后自动生成）
+ * @param onRewriting - 验证未通过进入重写轮的回调（前端显示占位文案）
+ * @param onFinal - 收到验证通过后的最终版完整文本的回调
  * @param onDone - 流结束回调
  * @param onError - 错误回调
  * @returns AbortController - 用于取消请求
@@ -62,6 +66,8 @@ export function sendMessageStream(
   thinking: boolean,
   onToken: TokenHandler,
   onTitle: TitleHandler,
+  onRewriting: RewritingHandler,
+  onFinal: FinalHandler,
   onDone: DoneHandler,
   onError: ErrorHandler,
 ): AbortController {
@@ -97,6 +103,10 @@ export function sendMessageStream(
         if (parsed.token) onToken(parsed.token)
         // 后端在首条消息时推送生成的对话标题，直接转交前端更新侧边栏
         if (parsed.title) onTitle(parsed.title)
+        // 验证未通过进入重写轮：通知前端显示占位文案，避免看到已推的首轮残稿
+        if (parsed.rewriting) onRewriting()
+        // 验证通过后的最终版完整文本：前端替换占位并打字机渲染
+        if (parsed.final) onFinal(parsed.final)
       } catch {
         // 忽略解析失败的行
       }
