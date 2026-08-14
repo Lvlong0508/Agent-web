@@ -273,3 +273,38 @@ async def test_chat_stream_keep_original_exception_when_save_fails():
         assert "模型调用超时" in str(exc_info.value)
     finally:
         current_user_id.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_records_verifier_verdict_in_trace():
+    """质检员结构化判定应记录进全链路：追加 role=verdict 条目（content 为 Verdict 字典）"""
+    token = current_user_id.set("anonymous")
+    try:
+        conv = Conversation(_id="c1", user_id="anonymous")
+        service = ChatService(MagicMock())
+        service.agent_run_repo = MagicMock()
+        service.agent_run_repo.create = AsyncMock(return_value=None)
+        service.conv_repo.get_by_id = AsyncMock(return_value=conv)
+        service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
+        service.msg_repo.create = AsyncMock(return_value=None)
+
+        async def fake_astream(input, **kwargs):
+            """verifier 节点产出 verdict（Verdict 字典）并推 updates"""
+            yield ("updates", {"verifier": {
+                "verification_result": "pass",
+                "verdict": {"is_accurate": True, "issues": ""},
+            }})
+
+        service.graph = MagicMock()
+        service.graph.astream = fake_astream
+
+        async for _ in service.chat_stream("c1", "你好", settings.MODEL_OLLAMA):
+            pass
+
+        run = service.agent_run_repo.create.call_args[0][0]
+        # 全链路应包含质检判定记录
+        verdicts = [m for m in run.messages if m["role"] == "verdict"]
+        assert len(verdicts) == 1
+        assert verdicts[0]["content"] == {"is_accurate": True, "issues": ""}
+    finally:
+        current_user_id.reset(token)

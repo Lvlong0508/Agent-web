@@ -552,6 +552,13 @@ def test_agent_state_declares_verification_result():
     assert "verification_result" in graph.builder.channels
 
 
+def test_agent_state_declares_verdict():
+    """verdict 必须在状态 schema 中声明，否则 LangGraph 会静默丢弃该键，
+    全链路记录就拿不到质检员的结构化判定"""
+    graph = build_agent_graph(MagicMock())
+    assert "verdict" in graph.builder.channels
+
+
 @pytest.mark.asyncio
 async def test_build_graph_registers_verifier_node(mock_conv_repo):
     """图注册了 generate_title / agent / tools / verifier 四个节点"""

@@ -34,6 +34,9 @@ class AgentState(MessagesState):
     # 必须声明在状态 schema 中，stream_mode="updates" 才会把这个字段推给 chat_service
     # 检测结果（未声明的键会被 LangGraph 静默丢弃）
     verification_result: str
+    # 质检员结构化判定（Verdict 的字典）：必须声明才能经 updates 流推给 chat_service，
+    # 用于全链路记录追加 role=verdict 条目（未声明的键会被 LangGraph 静默丢弃）
+    verdict: dict
 
 
 # 回复不准确时的最大重写次数：验证->重写->再验证循环的上限，防止无限循环拖慢响应
@@ -244,8 +247,13 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
                 "verification_feedback": "",
                 "verification_result": "pass",
                 "rewrite_count": state.get("rewrite_count", 0),
+                # 降级时无真实判定，用占位 verdict 保持链路记录字段一致
+                "verdict": {"is_accurate": True, "issues": f"验证器调用失败，降级通过：{e}"},
             }
-        return _decide_verification(verdict, state)
+        decision = _decide_verification(verdict, state)
+        # 把质检员的结构化判定一并写入状态，供上层全链路记录（role=verdict）
+        decision["verdict"] = verdict.model_dump()
+        return decision
 
     # agent 节点：把消息流（已含系统提示词）交给 LLM 生成回复
     # （stream_mode 会自动流式输出 token）

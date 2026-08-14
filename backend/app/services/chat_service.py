@@ -213,6 +213,13 @@ class ChatService:
                     # 验证节点结果：retry → 通知前端进入重写并清空待定回复；
                     # pass → 推送最终版；fail → 超限返回固定文案（不再循环）
                     result = data.get("verifier", {}).get("verification_result")
+                    # 记录质检员结构化判定到全链路（role=verdict，content 为 Verdict 字典）。
+                    # 至此 trace 完整覆盖：用户提问、agent 各轮回复、工具结果、质检判定
+                    verifier_verdict = data.get("verifier", {}).get("verdict")
+                    if verifier_verdict is not None:
+                        trace_messages.append(
+                            {"role": "verdict", "content": verifier_verdict}
+                        )
                     if result == "retry":
                         # 需重写：清空当前累积，重写轮会产出全新完整回复（不能拼接）
                         pending_reply = ""
