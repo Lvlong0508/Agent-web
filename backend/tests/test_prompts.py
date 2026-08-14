@@ -144,6 +144,39 @@ def test_verify_prompt_hides_tool_limits_penalty():
     assert "判不准确" in VERIFY_PROMPT
 
 
+def test_verify_prompt_each_data_needs_tool_origin():
+    """质检提示词必须要求：候选回复中的每个数据（金额/日期/条数/明细）都必须
+    能在本轮工具结果中找到对应来源；若涉及某类数据但本轮无该类数据的工具结果，
+    视为无依据，按规则4处理。堵住"调无关工具（如 get_now_time）制造有 tool
+    结果假象、再凭记忆编造账单数据"的漏洞（用户对抗式审查发现）"""
+    assert "对应来源" in VERIFY_PROMPT
+    assert "无依据" in VERIFY_PROMPT or "无有效工具依据" in VERIFY_PROMPT
+
+
+def test_verify_prompt_irrelevant_tool_is_not_valid_evidence():
+    """质检提示词规则4必须明确：无关工具调用不算有效工具依据——用户问账单
+    却只调了获取时间的工具，视同无有效工具调用，判 false"""
+    assert "无关" in VERIFY_PROMPT
+    assert "获取时间" in VERIFY_PROMPT
+    assert "视同无有效工具依据" in VERIFY_PROMPT or "无有效工具依据" in VERIFY_PROMPT
+
+
+def test_verify_prompt_distinguishes_category_and_item_count():
+    """质检提示词规则1必须区分两个"条数"：汇总按类别合并后类别数可与明细
+    条数不同；但候选回复若列出明细条目，实际列出的条目数必须等于宣称的总条数。
+    避免质检模型混淆两个含义（用户第一性原理审查发现）"""
+    assert "类别数" in VERIFY_PROMPT
+    assert "实际列出的条目数" in VERIFY_PROMPT
+
+
+def test_system_prompt_exception_requires_checking_own_tools():
+    """系统提示词例外条款必须要求先检查自己所拥有的工具：当且仅当确认没有
+    能回答该问题的工具、或工具调用失败时，才可如实说明；不得未经检查就声称
+    没有工具。与质检员侧"可用工具清单"形成闭环（用户建议）"""
+    assert "检查你所拥有的工具" in SYSTEM_PROMPT
+    assert "未经检查就声称没有工具" in SYSTEM_PROMPT
+
+
 def test_rewrite_prompt_tells_agent_to_reorganize():
     """重写轮指令必须重置前提（回答已被清空）、声明质检员身份、禁止道歉，
     否则 agent 会暴露"上一条回复未通过校验"这类过程性话术或输出道歉（实测出现"非常抱歉"）。
