@@ -174,7 +174,7 @@ async def test_contextvar_propagates_into_agent_tools():
     try:
         with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
             async for _ in graph.astream(
-                {"messages": [HumanMessage(content="记一笔账")], "conv_id": "c1", "model": settings.MODEL_OLLAMA},
+                {"messages": [HumanMessage(content="记一笔账")], "conv_id": "c1", "user_id": "user-tool", "model": settings.MODEL_OLLAMA},
                 stream_mode="messages",
             ):
                 pass

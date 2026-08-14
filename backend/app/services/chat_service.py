@@ -162,6 +162,7 @@ class ChatService:
                 {
                     "messages": langchain_messages,
                     "conv_id": conv_id,
+                    "user_id": user_id,  # 注入当前用户：图节点查询按用户隔离
                     "model": model,
                     "thinking": thinking,
                 },

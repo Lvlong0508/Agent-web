@@ -92,6 +92,7 @@ async def test_astream_runs_full_graph_with_title_and_tokens():
             {
                 "messages": [HumanMessage(content="hi")],
                 "conv_id": "c1",
+                "user_id": "user-abc",  # 图节点按用户隔离查询，必须注入归属用户
                 "model": settings.MODEL_DASHSCOPE_QWEN,
             },
             stream_mode="messages",
@@ -103,6 +104,8 @@ async def test_astream_runs_full_graph_with_title_and_tokens():
 
     # 标题已通过 generate_title 节点写入数据库
     conv_repo.update_title.assert_awaited_once_with("c1", "测试标题")
+    # generate_title 节点必须按用户隔离查询对话（get_by_id 双参数防越权）
+    conv_repo.get_by_id.assert_awaited_once_with("c1", "user-abc")
     # agent 节点的回复以 token 形式流式拼出（messages 流还包含标题 token，不影响）
     assert "你好，世界" in full_text
     # 图内节点应按所选模型创建 LLM（标题节点 + agent 节点各调用一次）。
@@ -143,6 +146,7 @@ async def test_title_failure_does_not_block_chat():
             {
                 "messages": [HumanMessage(content="hi")],
                 "conv_id": "c1",
+                "user_id": "user-abc",
                 "model": settings.MODEL_DASHSCOPE_QWEN,
             },
             stream_mode="messages",
@@ -179,7 +183,7 @@ async def test_generate_title_node_exposes_title_in_updates():
     updates = []
     with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
         async for mode, data in graph.astream(
-            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "model": settings.MODEL_OLLAMA},
+            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
             stream_mode=["messages", "updates"],
         ):
             if mode == "updates":
@@ -190,8 +194,9 @@ async def test_generate_title_node_exposes_title_in_updates():
         u.get("generate_title", {}).get("generated_title") == "集成标题"
         for u in updates
     )
-    # 标题仍按原逻辑写入数据库
+    # 标题仍按原逻辑写入数据库；查询对话按归属用户隔离
     conv_repo.update_title.assert_awaited_once_with("c1", "集成标题")
+    conv_repo.get_by_id.assert_awaited_once_with("c1", "user-abc")
 
 
 def test_create_llm_ollama_model():
@@ -279,6 +284,7 @@ async def test_agent_node_thinking_switch():
             {
                 "messages": [HumanMessage(content="hi")],
                 "conv_id": "c1",
+                "user_id": "user-abc",
                 "model": settings.MODEL_DASHSCOPE_QWEN,
                 "thinking": True,  # 用户在前端开启了深度思考
             },
@@ -316,7 +322,7 @@ async def test_agent_node_thinking_defaults_off():
     graph = build_agent_graph(conv_repo)
     with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
         async for _item in graph.astream(
-            {"messages": [HumanMessage(content="hi")], "conv_id": "c1"},
+            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc"},
             stream_mode="messages",
         ):
             pass
@@ -356,7 +362,7 @@ async def test_astream_defaults_to_ollama_without_model():
     graph = build_agent_graph(conv_repo)
     with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
         async for _item in graph.astream(
-            {"messages": [HumanMessage(content="hi")], "conv_id": "c1"},
+            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc"},
             stream_mode="messages",
         ):
             pass
