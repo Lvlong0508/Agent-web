@@ -68,6 +68,34 @@ def test_verify_prompt_history_reference_only_context():
     assert "仅供参考" in VERIFY_PROMPT
 
 
+def test_system_prompt_requires_fresh_tool_call_each_round():
+    """系统提示词必须约束：每一轮数据类问题都必须重新调用工具核实，
+    即使之前查询过同一主题，也不能凭记忆沿用旧结论（用户实测：第二轮
+    "我有4个账单"助手没调工具，凭第一轮印象编造出5条/金额全错的回复）"""
+    assert "每一轮" in SYSTEM_PROMPT or "每轮" in SYSTEM_PROMPT
+    assert "重新" in SYSTEM_PROMPT
+    assert "记忆" in SYSTEM_PROMPT
+
+
+def test_verify_prompt_requires_tool_evidence_for_data_questions():
+    """质检提示词必须明确：数据类问题（条数/金额/日期/明细）本轮若无 tool
+    结果，说明助手没调用工具核实，直接判不准确（用户实测：助手没调工具
+    编造回复，质检员因无 tool 依据而漏判）"""
+    assert "数据" in VERIFY_PROMPT
+    assert "没有" in VERIFY_PROMPT or "无" in VERIFY_PROMPT
+    assert "调用工具" in VERIFY_PROMPT
+
+
+def test_verify_prompt_checks_internal_consistency():
+    """质检提示词必须要求做内部一致性检查：列出的明细条数必须等于宣称
+    条数、明细金额之和必须等于宣称总额（用户实测：5条明细相加90元却宣称
+    70元，质检员没发现仍判准确）"""
+    assert "明细" in VERIFY_PROMPT
+    assert "条数" in VERIFY_PROMPT
+    assert "金额之和" in VERIFY_PROMPT or "总额" in VERIFY_PROMPT
+    assert "一致" in VERIFY_PROMPT
+
+
 def test_rewrite_prompt_tells_agent_to_reorganize():
     """重写轮指令必须重置前提（回答已被清空）、声明质检员身份、禁止对质检员道歉，
     否则 agent 会暴露"上一条回复未通过校验"这类过程性话术或输出道歉（实测出现"非常抱歉"）"""
