@@ -33,7 +33,7 @@ def test_system_prompt_requires_tool_for_non_chat_questions():
     """系统提示词必须约束：非纯聊天问题（查账单/时间等）应先调用工具、
     结合工具结果回答，不得凭记忆或猜测编造数据（用户实测：agent 不调用
     工具就编造"3笔/320元"等幻觉数据，导致质检拦截）"""
-    assert "调用相应工具" in SYSTEM_PROMPT
+    assert "调用工具" in SYSTEM_PROMPT
     assert "结合工具结果回答" in SYSTEM_PROMPT
     assert "编造数据" in SYSTEM_PROMPT
 
@@ -106,19 +106,27 @@ def test_verify_prompt_allows_correct_summary():
 
 
 def test_verify_prompt_honest_no_tool_is_exception():
-    """质检提示词必须允许例外：确实无可用工具、助手如实说明无法回答且未编造
-    数据时，不算不准确（防止把"查不到就明说"误判为编造）；但必须限定为
-    "如实说明"，防止 agent 偷懒不调工具还自称查不到"""
-    assert "如实说明" in VERIFY_PROMPT
-    assert "没有可用工具" in VERIFY_PROMPT or "无法回答" in VERIFY_PROMPT
+    """质检提示词必须允许例外：助手确实没有可用工具、在回复中明确说明无法
+    查询且未编造数据时，不算不准确；但必须限定为"回复里白纸黑字明说没有
+    可用工具"，防止 agent 偷懒不调工具还含糊带过"""
+    assert "如实说明" in VERIFY_PROMPT or "明确说明" in VERIFY_PROMPT
+    assert "可用的查询工具" in VERIFY_PROMPT or "无法查询" in VERIFY_PROMPT
     assert "不算不准确" in VERIFY_PROMPT
 
 
 def test_verify_prompt_defines_current_round():
-    """质检提示词必须明确"本轮"定义：提供给质检员的 tool 结果只属于本轮
-    用户提问之后产生的，历史轮次的 tool 结果不会提供，避免历史数据干扰校验"""
+    """质检提示词必须明确"本轮"定义：判定依据只认本轮 tool 结果，历史 tool
+    结果仅供参考、不作为判定依据，避免历史数据干扰校验"""
     assert "本轮" in VERIFY_PROMPT
     assert "历史" in VERIFY_PROMPT
+    assert "不作为判定依据" in VERIFY_PROMPT
+
+
+def test_verify_prompt_hides_tool_limits_penalty():
+    """质检提示词必须明确：工具结果不含用户要的时段时，助手若不告知工具限制、
+    直接拿不匹配数据硬答，判不准确（堵住"闷头用错数据"的漏洞）"""
+    assert "不匹配" in VERIFY_PROMPT
+    assert "判不准确" in VERIFY_PROMPT
 
 
 def test_rewrite_prompt_tells_agent_to_reorganize():
@@ -136,9 +144,11 @@ def test_rewrite_prompt_tells_agent_to_reorganize():
     assert "对用户也不要道歉" in prompt
     assert "不要提及质检过程" in prompt
     assert "未通过" not in prompt
-    # 强制数据类问题重新调用工具，堵住"凭记忆编造"的二次机会
+    # 强制数据类问题重新调用工具，堵住"凭记忆编造"的二次机会；
+    # 且禁用直接采用反馈中的数字，必须重新调工具核实
     assert "涉及数据" in prompt
     assert "调用工具" in prompt
+    assert "反馈" in prompt or "修正要求" in prompt
     # 反馈正确注入
     assert "金额错误" in prompt
 
