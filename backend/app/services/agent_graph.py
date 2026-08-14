@@ -150,7 +150,9 @@ def _decide_verification(verdict: Verdict, state: AgentState) -> dict:
     }
 
 
-def _build_verdict_input(messages, history_reference: list | None = None) -> tuple[list, list[dict]]:
+def _build_verdict_input(
+    messages, history_reference: list | None = None, available_tools: list | None = None
+) -> tuple[list, list[dict]]:
     """构造发给质检员的完整输入，返回（精简对话消息, 序列化输入）。
 
     质检输入由两部分组成：
@@ -158,6 +160,8 @@ def _build_verdict_input(messages, history_reference: list | None = None) -> tup
       记忆一致）。传了它，质检员就能理解基于历史记忆的回复（如历史里用户
       说过自己叫小明）；不传则退化为只保留本轮用户问题。
     - 本轮数据：候选回复（最后一条无 tool_calls 的 assistant）+ 本轮工具结果。
+    - 可用工具清单：available_tools 传入工具名列表，质检员据此判断"没有可用
+      工具"的说法真伪（清单里有却说没有=说谎），杜绝助手谎称无工具逃避。
 
     精简规则避免质检员被"互相矛盾的旧轮次/重写残稿"干扰（实测 bug：
     质检员判词里已认定"与tool一致、回复准确"，却返回 is_accurate=False）。
@@ -211,30 +215,45 @@ def _build_verdict_input(messages, history_reference: list | None = None) -> tup
     if candidate is not None:
         reduced.append(candidate)
 
+    # 可用工具清单：作为参考信息注入质检输入（SystemMessage），供质检员判断
+    # "没有可用工具"的说法真伪；无工具时跳过（测试/纯 LLM 场景兼容）
+    tools_system = None
+    if available_tools:
+        tools_system = SystemMessage(
+            content=f"可用工具清单：{', '.join(available_tools)}"
+        )
+
     # 序列化完整输入（含前置 VERIFY_PROMPT），供全链路记录与日志
     serialized = [
         {"role": "system", "content": VERIFY_PROMPT},
-        *[
-            {
-                "role": getattr(m, "type", "unknown"),
-                "content": m.content,
-            }
-            for m in reduced
-        ],
     ]
+    if tools_system is not None:
+        serialized.append({"role": "system", "content": tools_system.content})
+    serialized.extend(
+        {
+            "role": getattr(m, "type", "unknown"),
+            "content": m.content,
+        }
+        for m in reduced
+    )
+    if tools_system is not None:
+        reduced = [tools_system, *reduced]
     return reduced, serialized
 
 
-async def _run_verdict(llm, messages, history_reference: list | None = None) -> Verdict:
+async def _run_verdict(
+    llm, messages, history_reference: list | None = None, available_tools: list | None = None
+) -> Verdict:
     """调用结构化输出 LLM，基于"参考历史 + 本轮数据"得到验证结论。
 
     参考历史与传给 agent 的记忆一致（精纯 user/assistant），让质检员能理解
     基于记忆的回复；本轮数据只取候选回复与工具结果，丢弃其他历史，避免
     质检员被互相矛盾的多轮回复干扰（实测 bug：质检员判词里已认定"与tool一致、
-    回复准确"，却返回 is_accurate=False）。
+    回复准确"，却返回 is_accurate=False）。可用工具清单帮助质检员判断"无工具"
+    说法真伪。
     """
     structured = llm.with_structured_output(Verdict)
-    reduced, serialized = _build_verdict_input(messages, history_reference)
+    reduced, serialized = _build_verdict_input(messages, history_reference, available_tools)
     # 诊断日志：确认发给质检员的消息序列（SystemMessage 已过滤、旧轮次已丢弃）
     logger.info(
         "verifier 输入消息类型: %s",
@@ -301,11 +320,16 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
             )
             # 构造发给质检员的输入（同时拿到序列化版本，供全链路记录）。
             # 传入精纯历史参考：质检员理解基于历史记忆的回复（如称呼用户名），
-            # 又不受工具轮/重写轮噪音干扰
+            # 又不受工具轮/重写轮噪音干扰。
+            # 传入可用工具名列表：质检员据此判断"没有可用工具"的说法真伪，
+            # 杜绝助手谎称无工具逃避（工具列表来自图构建时绑定的 tools 闭包）
+            available_tools = [t.name for t in tools]
             _, verdict_input = _build_verdict_input(
-                state["messages"], state.get("history_reference")
+                state["messages"], state.get("history_reference"), available_tools
             )
-            verdict = await _run_verdict(llm, state["messages"], state.get("history_reference"))
+            verdict = await _run_verdict(
+                llm, state["messages"], state.get("history_reference"), available_tools
+            )
             logger.info("verifier 判定: is_accurate=%s issues=%r", verdict.is_accurate, verdict.issues)
         except Exception as e:
             # 验证器调用失败（网络异常/模型不支持结构化输出等）不能拖垮主流程：

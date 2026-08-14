@@ -32,10 +32,15 @@ def test_system_prompt_defines_role():
 def test_system_prompt_requires_tool_for_non_chat_questions():
     """系统提示词必须约束：非纯聊天问题（查账单/时间等）应先调用工具、
     结合工具结果回答，不得凭记忆或猜测编造数据（用户实测：agent 不调用
-    工具就编造"3笔/320元"等幻觉数据，导致质检拦截）"""
+    工具就编造"3笔/320元"等幻觉数据，导致质检拦截）。
+    且需给出具体示例（查询账单/统计金额/获取时间等），降低模型自行界定
+    "非纯聊天问题"范围的风险"""
     assert "调用工具" in SYSTEM_PROMPT
     assert "结合工具结果回答" in SYSTEM_PROMPT
     assert "编造数据" in SYSTEM_PROMPT
+    assert "查询账单" in SYSTEM_PROMPT
+    assert "统计金额" in SYSTEM_PROMPT
+    assert "获取时间" in SYSTEM_PROMPT
 
 
 def test_verify_prompt_exists_and_instructs():
@@ -98,11 +103,13 @@ def test_verify_prompt_checks_internal_consistency():
 
 def test_verify_prompt_allows_correct_summary():
     """质检提示词必须允许合理汇总：助手把多条明细汇总成类别金额（如早餐5元+
-    午饭15元=餐饮20元）是正常行为，不能因未逐项罗列而误判；但汇总必须正确
-    （各明细金额之和必须等于汇总金额）"""
+    午饭15元=餐饮20元）是正常行为，不能因未逐项罗列而误判；但汇总必须正确。
+    需覆盖两层汇总：每个分类汇总=该类明细之和、总汇总=全部明细之和"""
     assert "汇总" in VERIFY_PROMPT
     assert "允许" in VERIFY_PROMPT
     assert "之和" in VERIFY_PROMPT
+    assert "每个分类汇总金额" in VERIFY_PROMPT
+    assert "总汇总金额" in VERIFY_PROMPT
 
 
 def test_verify_prompt_honest_no_tool_is_exception():
@@ -112,6 +119,14 @@ def test_verify_prompt_honest_no_tool_is_exception():
     assert "如实说明" in VERIFY_PROMPT or "明确说明" in VERIFY_PROMPT
     assert "可用的查询工具" in VERIFY_PROMPT or "无法查询" in VERIFY_PROMPT
     assert "不算不准确" in VERIFY_PROMPT
+
+
+def test_verify_prompt_uses_available_tools_for_no_tool_exception():
+    """质检提示词必须说明：可用工具清单随输入提供，质检员以此判断"没有可用工具"
+    的说法真伪——工具清单里明明有对应工具却说没有，判不准确（用户担忧：助手
+    可谎称无工具骗过质检）"""
+    assert "可用工具" in VERIFY_PROMPT
+    assert "清单" in VERIFY_PROMPT or "列表" in VERIFY_PROMPT
 
 
 def test_verify_prompt_defines_current_round():

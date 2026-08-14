@@ -228,7 +228,7 @@ async def test_contextvar_propagates_into_agent_tools():
     try:
         # verifier 节点会真实调用 _run_verdict（需结构化输出），fake LLM 不支持，
         # patch 成直接返回"准确"，让工具调用链路验证通过后正常结束
-        async def fake_run_verdict(llm, messages):
+        async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
             return Verdict(is_accurate=True, issues="")
 
         with patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict):
@@ -308,7 +308,7 @@ async def test_agent_tool_loop_returns_final_reply_and_filters_mid_round():
         events = []
         # verifier 节点会真实调用 _run_verdict（需结构化输出），fake LLM 不支持，
         # patch 成直接返回"准确"，让工具调用链路验证通过后正常结束
-        async def fake_run_verdict(llm, messages):
+        async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
             return Verdict(is_accurate=True, issues="")
 
         with patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict):
