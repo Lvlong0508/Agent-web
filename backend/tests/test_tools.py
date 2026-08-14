@@ -17,8 +17,19 @@ from app.services.agent_graph import build_agent_graph
 from app.services.chat_service import ChatService
 from app.tools import get_tools
 from app.tools.expense_tool import build_expense_tools
+from app.tools.time_tool import build_time_tools
 
 EXPECTED_TOOL_NAMES = {
+    "create_expense",
+    "get_expense",
+    "list_expenses",
+    "update_expense",
+    "delete_expense",
+    "get_now_time",
+}
+
+# 仅账单工厂单独产出的工具名：build_expense_tools 不应包含时间工具
+EXPECTED_EXPENSE_TOOL_NAMES = {
     "create_expense",
     "get_expense",
     "list_expenses",
@@ -28,16 +39,29 @@ EXPECTED_TOOL_NAMES = {
 
 
 def test_build_expense_tools_returns_five_tools():
-    """测试工具工厂返回 5 个账单工具，名称符合预期"""
+    """测试工具工厂返回 5 个账单工具（不含时间工具），名称符合预期"""
     tools = build_expense_tools(SessionLocal)
     names = {t.name for t in tools}
-    assert names == EXPECTED_TOOL_NAMES
+    assert names == EXPECTED_EXPENSE_TOOL_NAMES
 
 
 def test_get_tools_aggregates_all_tools():
-    """测试统一注册入口 get_tools 返回全部工具"""
+    """测试统一注册入口 get_tools 返回全部工具（账单 + 时间）"""
     tools = get_tools(SessionLocal)
     assert {t.name for t in tools} == EXPECTED_TOOL_NAMES
+
+
+@pytest.mark.asyncio
+async def test_get_now_time_tool_returns_valid_time():
+    """测试时间工具返回当前时间，格式符合 YYYY-MM-DD HH:MM:SS 且可被 JSON 化"""
+    import datetime
+
+    tools = {t.name: t for t in build_time_tools()}
+    result = await tools["get_now_time"].ainvoke({})
+    # 工具返回的字符串能解析为合法时间（LLM 需要拿到可读的时间文本）
+    parsed = datetime.datetime.strptime(result, "%Y-%m-%d %H:%M:%S")
+    # 返回的时间与当前系统时间相差应在 1 分钟内（工具确实读的是实时时钟）
+    assert abs((datetime.datetime.now() - parsed).total_seconds()) < 60
 
 
 @pytest.fixture(autouse=True)
