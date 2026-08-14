@@ -52,3 +52,5 @@ async def test_agent_run_repo_list_by_conversation():
     assert runs[0].conversation_id == "c1"
     # 查询必须带 conversation_id 过滤并按时间升序（回放顺序）
     repo.collection.find.assert_called_once_with({"conversation_id": "c1"})
+    # 断言按创建时间升序排序（保证回放顺序）
+    repo.collection.find.return_value.sort.assert_called_once_with("created_at", 1)
