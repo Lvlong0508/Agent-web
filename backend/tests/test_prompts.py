@@ -96,19 +96,48 @@ def test_verify_prompt_checks_internal_consistency():
     assert "一致" in VERIFY_PROMPT
 
 
+def test_verify_prompt_allows_correct_summary():
+    """质检提示词必须允许合理汇总：助手把多条明细汇总成类别金额（如早餐5元+
+    午饭15元=餐饮20元）是正常行为，不能因未逐项罗列而误判；但汇总必须正确
+    （各明细金额之和必须等于汇总金额）"""
+    assert "汇总" in VERIFY_PROMPT
+    assert "允许" in VERIFY_PROMPT
+    assert "之和" in VERIFY_PROMPT
+
+
+def test_verify_prompt_honest_no_tool_is_exception():
+    """质检提示词必须允许例外：确实无可用工具、助手如实说明无法回答且未编造
+    数据时，不算不准确（防止把"查不到就明说"误判为编造）；但必须限定为
+    "如实说明"，防止 agent 偷懒不调工具还自称查不到"""
+    assert "如实说明" in VERIFY_PROMPT
+    assert "没有可用工具" in VERIFY_PROMPT or "无法回答" in VERIFY_PROMPT
+    assert "不算不准确" in VERIFY_PROMPT
+
+
+def test_verify_prompt_defines_current_round():
+    """质检提示词必须明确"本轮"定义：提供给质检员的 tool 结果只属于本轮
+    用户提问之后产生的，历史轮次的 tool 结果不会提供，避免历史数据干扰校验"""
+    assert "本轮" in VERIFY_PROMPT
+    assert "历史" in VERIFY_PROMPT
+
+
 def test_rewrite_prompt_tells_agent_to_reorganize():
-    """重写轮指令必须重置前提（回答已被清空）、声明质检员身份、禁止对质检员道歉，
-    否则 agent 会暴露"上一条回复未通过校验"这类过程性话术或输出道歉（实测出现"非常抱歉"）"""
+    """重写轮指令必须重置前提（回答已被清空）、声明质检员身份、禁止道歉，
+    否则 agent 会暴露"上一条回复未通过校验"这类过程性话术或输出道歉（实测出现"非常抱歉"）。
+    同时必须强制：涉及数据的问题先调用工具，避免重写轮再次凭记忆编造（实测第二轮没调工具）"""
     prompt = build_rewrite_prompt("金额错误")
     # 重置前提：清空回答，让 agent 全新开始，不纠结之前的错误
     assert "已被我清空" in prompt
     # 声明质检员身份与中间人角色，防止 agent 把质检员当用户
     assert "质检员" in prompt
     assert "你和用户之间" in prompt
-    # 硬性禁令：不得对质检员道歉（可对用户道歉）、不提及质检过程
-    assert "不要对质检员我道歉" in prompt
-    assert "可以对用户道歉" in prompt
+    # 硬性禁令：不道歉、不提及质检过程（重写轮用户端不可见，道歉没必要）
+    assert "不要道歉" in prompt
+    assert "不要提及质检过程" in prompt
     assert "未通过" not in prompt
+    # 强制数据类问题重新调用工具，堵住"凭记忆编造"的二次机会
+    assert "涉及数据" in prompt
+    assert "调用工具" in prompt
     # 反馈正确注入
     assert "金额错误" in prompt
 
