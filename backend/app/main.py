@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +11,9 @@ from app.middleware.mongodb import MongoDB
 from app.middleware.mysql import Base, engine
 from app.exceptions import AppException
 import app.models.expense  # noqa: F401  导入模型让 Base.metadata 注册 expenses 表
+
+# 日志初始化：默认 INFO 级别输出到控制台，便于排查验证器/标题节点等关键链路
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
 
 # 应用生命周期：启动时初始化 MongoDB 并自动创建 MySQL 表

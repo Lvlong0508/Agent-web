@@ -148,6 +148,11 @@ async def _run_verdict(llm, messages) -> Verdict:
     # 设定误当成对话参与者，导致校验对象搞错（实测 bug：把"小励"当成了用户）。
     # 只保留 user/assistant/tool 对话消息，再前置验证提示词
     dialogue_messages = [m for m in messages if not isinstance(m, SystemMessage)]
+    # 诊断日志：确认发给质检员的消息序列（SystemMessage 已被过滤，不会混入角色设定）
+    logger.info(
+        "verifier 输入消息类型: %s",
+        [type(m).__name__ for m in [SystemMessage(content=VERIFY_PROMPT), *dialogue_messages]],
+    )
     return await structured.ainvoke(
         [SystemMessage(content=VERIFY_PROMPT), *dialogue_messages]
     )
@@ -194,7 +199,18 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
             enable_thinking=False,
         )
         try:
+            # 诊断日志：记录校验依据——候选回复内容与对话中的工具结果条数，
+            # 便于排查"内容正确却被拦"时确认质检员到底核对了什么
+            last_msg = state["messages"][-1] if state["messages"] else None
+            tool_msgs = [m for m in state["messages"] if m.type == "tool"]
+            logger.info(
+                "verifier 校验: rewrite_count=%s 候选=%r 工具结果数=%s",
+                state.get("rewrite_count", 0),
+                getattr(last_msg, "content", "")[:200],
+                len(tool_msgs),
+            )
             verdict = await _run_verdict(llm, state["messages"])
+            logger.info("verifier 判定: is_accurate=%s issues=%r", verdict.is_accurate, verdict.issues)
         except Exception as e:
             # 验证器调用失败（网络异常/模型不支持结构化输出等）不能拖垮主流程：
             # 与标题节点"失败静默跳过"同理，降级为通过（接受候选回复），
