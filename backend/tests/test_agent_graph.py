@@ -595,6 +595,29 @@ def test_build_verdict_input_serializes_payload():
     assert serialized[3]["content"] == "这个月花了 70 元"
 
 
+def test_build_verdict_input_keeps_only_current_round_tool_result():
+    """质检输入只能包含本轮的工具结果，不能混入历史轮次的工具结果。
+    否则质检员会被上一轮的旧数据干扰（与历史 HumanMessage 是同类 bug）"""
+    messages = [
+        HumanMessage(content="上一轮问题：查7月账单"),
+        ToolMessage(content="{\"total\": 1}", name="list_expenses", tool_call_id="1"),
+        AIMessage(content="上一轮回答：7月有1笔"),
+        HumanMessage(content="本轮问题：查8月账单"),
+        ToolMessage(content="{\"total\": 2}", name="list_expenses", tool_call_id="2"),
+        AIMessage(content="本轮回答：8月有2笔"),
+    ]
+    reduced, serialized = _build_verdict_input(messages)
+
+    # 只保留本轮用户问题 + 本轮工具结果 + 候选回复
+    assert [type(m) for m in reduced] == [HumanMessage, ToolMessage, AIMessage]
+    assert reduced[0].content == "本轮问题：查8月账单"
+    assert reduced[1].content == "{\"total\": 2}"
+    assert reduced[2].content == "本轮回答：8月有2笔"
+    # 序列化输入不包含历史轮次的工具结果
+    tool_contents = [m["content"] for m in serialized if m["role"] == "tool"]
+    assert tool_contents == ["{\"total\": 2}"]
+
+
 def test_agent_state_declares_verification_result():
     """verification_result 必须在状态 schema 中声明，否则 LangGraph 会静默丢弃该键"""
     graph = build_agent_graph(MagicMock())

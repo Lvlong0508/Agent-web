@@ -173,18 +173,22 @@ def _build_verdict_input(messages) -> tuple[list, list[dict]]:
     # 注意不能保留所有 HumanMessage——state["messages"] 含多轮历史对话，
     # 历史轮次的用户消息会干扰质检（实测日志 verifier 输入出现多条 HumanMessage）
     current_user_msg = None
-    for m in dialogue_messages:
+    user_index = -1
+    for idx, m in enumerate(dialogue_messages):
         if isinstance(m, HumanMessage):
             current_user_msg = m
+            user_index = idx
         if m is candidate:
             break
 
-    # 精简上下文：只保留本轮用户问题、工具结果、候选回复三类消息，顺序按原文保持。
-    # 带 tool_calls 的中间轮（"让我查询一下"）与已判错的旧轮次都会干扰判定
+    # 精简上下文：只保留本轮用户问题、本轮工具结果、候选回复三类消息，顺序按原文保持。
+    # 本轮工具结果 = 位置在本轮用户问题之后、候选回复之前的 ToolMessage；
+    # 历史轮次的工具结果（在 user_index 之前）会干扰质检，必须丢弃。
+    # 带 tool_calls 的中间轮（"让我查询一下"）与已判错的旧轮次同样丢弃
     reduced = [
-        m for m in dialogue_messages
+        m for idx, m in enumerate(dialogue_messages)
         if (current_user_msg is not None and m is current_user_msg)
-        or isinstance(m, ToolMessage)
+        or (isinstance(m, ToolMessage) and idx > user_index)
         or (candidate is not None and m is candidate)
     ]
     # 序列化完整输入（含前置 VERIFY_PROMPT），供全链路记录与日志
