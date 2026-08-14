@@ -2,7 +2,7 @@
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import delete, text
+from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
 from app.auth import current_user_id
@@ -12,6 +12,7 @@ from app.middleware.mysql import Base, SessionLocal, engine
 from app.models.expense import Expense, ExpenseCategory
 from app.schemas.expense import ExpenseCreate, ExpenseUpdate
 from app.services.expense_service import ExpenseService
+from tests.conftest import delete_expenses_after, get_max_expense_id
 
 
 @pytest.fixture(autouse=True)
@@ -24,15 +25,18 @@ def user_context():
 
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db():
-    """每个测试前确保表已创建，结束后清空测试数据"""
+    """每个测试前确保表已创建并记录当前最大 id，结束后只删除本次新增的数据。
+    注意：不能用 delete(Expense) 清空整表——测试连的是真实 MySQL，会误删
+    用户通过 AI 工具创建的账单；这里只清理 id 大于测试前最大值的行"""
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        max_id_before = await get_max_expense_id()
     except OperationalError:
         pytest.skip("本地 MySQL 不可用，跳过账单测试")
+        return
     yield
-    async with engine.begin() as conn:
-        await conn.execute(delete(Expense))
+    await delete_expenses_after(max_id_before)
 
 
 @pytest_asyncio.fixture
@@ -82,7 +86,18 @@ async def test_get_expense_not_found(service):
 
 @pytest.mark.asyncio
 async def test_list_pagination(service):
-    """测试分页查询：总数、总页数、页码与当前页条数正确"""
+    """测试分页查询：总数、总页数、页码与当前页条数正确。
+    注意：表里可能有用户已有数据，total 断言用"测试前当前用户总数 + 本次新增"计算"""
+    async with SessionLocal() as session:
+        from sqlalchemy import func, select
+        before = (
+            await session.execute(
+                select(func.count()).select_from(Expense).where(
+                    Expense.user_id == settings.DEFAULT_USER_ID
+                )
+            )
+        ).scalar_one()
+
     for i in range(5):
         await _make(
             ExpenseCreate(category=ExpenseCategory.SHOPPING, amount=f"{i + 1}.00", date="2026-08-03"),
@@ -90,15 +105,17 @@ async def test_list_pagination(service):
         )
 
     page = await service.list(page=1, page_size=2)
-    assert page.total == 5
-    assert page.total_pages == 3
+    # 本次新增 5 条，总数 = 测试前该用户总数 + 5
+    assert page.total == before + 5
+    assert page.total_pages == (before + 5 + 1) // 2
     assert page.page == 1
     assert page.page_size == 2
     assert len(page.items) == 2
 
-    # 翻到最后一页只剩 1 条
-    last = await service.list(page=3, page_size=2)
-    assert len(last.items) == 1
+    # 翻到最后一页只剩不足一页的余数
+    last = await service.list(page=page.total_pages, page_size=2)
+    remainder = (before + 5) - (page.total_pages - 1) * 2
+    assert len(last.items) == remainder
 
 
 @pytest.mark.asyncio
@@ -153,6 +170,17 @@ async def test_indexes_created(service):
 @pytest.mark.asyncio
 async def test_expense_isolation_by_user(service):
     """不同 user_id 的数据互相隔离：user-a 建的账单 user-b 查不到"""
+    # 先记录 user-b 测试前的总数（库里可能有该用户的历史数据，不能假设为 0）
+    async with SessionLocal() as session:
+        from sqlalchemy import func, select
+        before_b = (
+            await session.execute(
+                select(func.count()).select_from(Expense).where(
+                    Expense.user_id == "user-b"
+                )
+            )
+        ).scalar_one()
+
     token_a = current_user_id.set("user-a")
     data = await _make(
         ExpenseCreate(category=ExpenseCategory.FOOD, amount="1.00", date="2026-08-01"),
@@ -164,5 +192,6 @@ async def test_expense_isolation_by_user(service):
     with pytest.raises(NotFoundError):
         await service.get(data["id"])
     page = await service.list()
-    assert page.total == 0
+    # user-b 查不到 user-a 的账单：总数保持测试前不变
+    assert page.total == before_b
     current_user_id.reset(token_b)

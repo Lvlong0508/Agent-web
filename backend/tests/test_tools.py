@@ -6,7 +6,7 @@ import pytest
 import pytest_asyncio
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
 from app.auth import current_user_id
@@ -18,6 +18,7 @@ from app.services.chat_service import ChatService
 from app.tools import get_tools
 from app.tools.expense_tool import build_expense_tools
 from app.tools.time_tool import build_time_tools
+from tests.conftest import delete_expenses_after, get_max_expense_id
 
 EXPECTED_TOOL_NAMES = {
     "create_expense",
@@ -74,15 +75,18 @@ def user_context():
 
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db():
-    """真实调用前确保表已创建，结束后清空测试数据"""
+    """真实调用前确保表已创建并记录当前最大 id，结束后只删除本次新增的数据。
+    注意：不能用 delete(Expense) 清空整表——测试连的是真实 MySQL，会误删
+    用户通过 AI 工具创建的账单；这里只清理 id 大于测试前最大值的行"""
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        max_id_before = await get_max_expense_id()
     except OperationalError:
         pytest.skip("本地 MySQL 不可用，跳过账单工具真实调用测试")
+        return
     yield
-    async with engine.begin() as conn:
-        await conn.execute(delete(Expense))
+    await delete_expenses_after(max_id_before)
 
 
 @pytest.mark.asyncio
