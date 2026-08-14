@@ -15,6 +15,7 @@ import {
   EMPTY_REPLY,
   VOICE_UNSUPPORTED,
 } from './Text'
+import { useErrorModal } from '@/composables/useErrorModal'
 
 export function useChat() {
   const conversations = ref([])
@@ -23,7 +24,9 @@ export function useChat() {
   const messages = ref([])
   const inputText = ref('')
   const sending = ref(false)
-  const error = ref('')
+
+  // 全局错误弹窗：所有错误不再写入 error ref 渲染气泡，统一走弹窗提示
+  const { showError } = useErrorModal()
 
   // 会话搜索关键字：只在本地过滤列表，不改动后端数据
   const searchQuery = ref('')
@@ -143,7 +146,7 @@ export function useChat() {
       } else if (!voiceWarned) {
         // 浏览器不支持语音时只提示一次，避免每次按空格都报错
         voiceWarned = true
-        error.value = VOICE_UNSUPPORTED
+        showError(VOICE_UNSUPPORTED)
       }
     }
   }
@@ -183,19 +186,18 @@ export function useChat() {
       conversations.value.unshift(conv)
       selectConversation(conv.id)
     } catch {
-      error.value = '创建对话失败'
+      showError('创建对话失败')
     }
   }
 
   async function selectConversation(convId) {
     activeConvId.value = convId
     messages.value = []
-    error.value = ''
     try {
       const res = await getMessages(convId)
       messages.value = res.data.map(m => ({ role: m.role, content: m.content }))
     } catch {
-      error.value = '加载消息失败'
+      showError('加载消息失败')
     }
   }
 
@@ -208,7 +210,7 @@ export function useChat() {
         messages.value = []
       }
     } catch {
-      error.value = '删除失败'
+      showError('删除失败')
     }
   }
 
@@ -217,7 +219,6 @@ export function useChat() {
     if (!text || !activeConvId.value || sending.value) return
 
     sending.value = true
-    error.value = ''
     inputText.value = ''
 
     messages.value.push({ role: 'user', content: text })
@@ -266,11 +267,15 @@ export function useChat() {
         streamDone = true
       },
       (errMsg) => {
-        // 出错：立即渲染已收到的部分并显示错误文本，思考标记一并清除防止卡死
+        // 出错：立即渲染已收到的部分，弹窗提示错误，思考标记一并清除防止卡死
         stopRenderingImmediately()
         assistantMsg.thinking = false
-        error.value = errMsg || ERROR_NETWORK
-        assistantMsg.content = assistantMsg.content || ERROR_NETWORK
+        showError(errMsg || ERROR_NETWORK)
+        // 无任何内容时移除 AI 气泡（只留用户消息）；已有部分 token 则保留气泡
+        if (!assistantMsg.content) {
+          const idx = messages.value.indexOf(assistantMsg)
+          if (idx !== -1) messages.value.splice(idx, 1)
+        }
         sending.value = false
         abortController = null
       },
@@ -304,7 +309,7 @@ export function useChat() {
 
   return {
     conversations, activeConvId, loadingList,
-    messages, inputText, sending, error, selectedModel,
+    messages, inputText, sending, selectedModel,
     thinking, toggleThinking,
     searchQuery, filteredConversations, currentTitle,
     showScrollBtn, listening, scrollContainer,

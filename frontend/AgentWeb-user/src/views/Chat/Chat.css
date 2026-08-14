@@ -391,12 +391,6 @@
   border-bottom-right-radius: 6px;
 }
 
-.message.error {
-  background: var(--surface);
-  color: var(--danger);
-  box-shadow: var(--shadow-sm);
-}
-
 /* ===== 底部输入坞 ===== */
 .input-dock {
   position: relative;
