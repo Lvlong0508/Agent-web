@@ -13,6 +13,7 @@ import {
   DEFAULT_MODEL,
   THINKING_MODE_KEY,
   EMPTY_REPLY,
+  REWRITING,
   VOICE_UNSUPPORTED,
 } from './Text'
 import { useErrorModal } from '@/composables/useErrorModal'
@@ -261,6 +262,20 @@ export function useChat() {
         // 无需用户手动刷新页面（conversations 是深响应式的，改 title 即触发重渲染）
         const conv = conversations.value.find(c => c.id === activeConvId.value)
         if (conv) conv.title = title
+      },
+      () => {
+        // 验证未通过进入重写轮：清空已渲染的首轮残稿与待渲染队列，
+        // 显示占位文案，等 final 事件送达最终版
+        pending.length = 0
+        assistantMsg.content = REWRITING
+        assistantMsg.thinking = false
+      },
+      (text) => {
+        // 验证通过收到最终版：清空占位，逐字放入渲染队列保持打字机效果。
+        // 最终版内容不再从后端逐 token 推流（重写轮非流式），此处整段送达
+        pending.length = 0
+        assistantMsg.content = ''
+        for (const ch of text) pending.push(ch)
       },
       () => {
         // 流正常结束：只标记结束，剩余 token 交给定时器逐字渲染完
