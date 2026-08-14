@@ -1,3 +1,4 @@
+import logging
 from typing import Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -9,6 +10,9 @@ from pydantic import BaseModel
 from app.config.settings import settings
 from app.repositories.conversation_repo import ConversationRepo
 from app.services.prompts import build_title_prompt, VERIFY_PROMPT
+
+# 模块级日志器：供节点异常降级等场景记录可诊断信息，便于线上排查
+logger = logging.getLogger(__name__)
 
 
 class AgentState(MessagesState):
@@ -183,7 +187,18 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
             # 验证不需要深度思考：关闭思考模式让判定快速返回，避免十几秒思考拖慢
             enable_thinking=False,
         )
-        verdict = await _run_verdict(llm, state["messages"])
+        try:
+            verdict = await _run_verdict(llm, state["messages"])
+        except Exception as e:
+            # 验证器调用失败（网络异常/模型不支持结构化输出等）不能拖垮主流程：
+            # 与标题节点"失败静默跳过"同理，降级为通过（接受候选回复），
+            # 保证用户仍能拿到 agent 已产出的合格回复
+            logger.warning("验证节点调用失败，降级为通过：%s", e)
+            return {
+                "verification_feedback": "",
+                "verification_result": "pass",
+                "rewrite_count": state.get("rewrite_count", 0),
+            }
         return _decide_verification(verdict, state)
 
     # agent 节点：把消息流（已含系统提示词）交给 LLM 生成回复

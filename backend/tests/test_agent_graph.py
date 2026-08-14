@@ -528,6 +528,38 @@ async def test_verifier_accurate_ends_graph():
 
 
 @pytest.mark.asyncio
+async def test_verifier_degrades_to_pass_when_llm_fails():
+    """验证器 LLM 调用失败时降级为通过，图正常结束不崩溃"""
+    conv = MagicMock()
+    conv.title = "已有标题"
+    conv_repo = MagicMock()
+    conv_repo.get_by_id = AsyncMock(return_value=conv)
+    conv_repo.update_title = AsyncMock(return_value=None)
+
+    agent_llm = GenericFakeChatModel(messages=iter([AIMessage(content="回复")]))
+
+    # 验证器调用抛异常（模拟网络故障）
+    async def boom_verdict(llm, messages):
+        raise ConnectionError("Ollama down")
+
+    graph = build_agent_graph(conv_repo)
+    updates = []
+    with (
+        patch("app.services.agent_graph._run_verdict", side_effect=boom_verdict),
+        patch("app.services.agent_graph.create_llm", side_effect=lambda streaming=True, model="", enable_thinking=True, max_tokens=None: agent_llm),
+    ):
+        async for mode, data in graph.astream(
+            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
+            stream_mode=["messages", "updates"],
+        ):
+            if mode == "updates":
+                updates.append(data)
+
+    # 降级为 pass：图正常结束，未崩溃
+    assert any(u.get("verifier", {}).get("verification_result") == "pass" for u in updates)
+
+
+@pytest.mark.asyncio
 async def test_verifier_retry_then_pass_loops_through_agent():
     """首次不准确回 agent 重写，重写后准确走 pass"""
     conv = MagicMock()
