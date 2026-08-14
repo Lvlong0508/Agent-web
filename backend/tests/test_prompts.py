@@ -29,6 +29,15 @@ def test_system_prompt_defines_role():
     assert "好的体验" in SYSTEM_PROMPT
 
 
+def test_system_prompt_requires_tool_for_non_chat_questions():
+    """系统提示词必须约束：非纯聊天问题（查账单/时间等）应先调用工具、
+    结合工具结果回答，不得凭记忆或猜测编造数据（用户实测：agent 不调用
+    工具就编造"3笔/320元"等幻觉数据，导致质检拦截）"""
+    assert "调用相应工具" in SYSTEM_PROMPT
+    assert "结合工具结果回答" in SYSTEM_PROMPT
+    assert "编造数据" in SYSTEM_PROMPT
+
+
 def test_verify_prompt_exists_and_instructs():
     """验证提示词存在且包含判定指令"""
     assert "is_accurate" in VERIFY_PROMPT
