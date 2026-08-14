@@ -26,6 +26,10 @@ class AgentState(MessagesState):
     rewrite_count: int
     # 验证反馈：verifier 写给 agent 的修正意见；非空表示候选回复未通过，需重写
     verification_feedback: str
+    # 验证结论：verifier 产出的 pass（准确）/ retry（需重写）/ fail（超限）。
+    # 必须声明在状态 schema 中，stream_mode="updates" 才会把这个字段推给 chat_service
+    # 检测结果（未声明的键会被 LangGraph 静默丢弃）
+    verification_result: str
 
 
 # 回复不准确时的最大重写次数：验证->重写->再验证循环的上限，防止无限循环拖慢响应

@@ -445,3 +445,11 @@ async def test_run_verdict_injects_verify_prompt_and_calls_structured_llm():
     assert VERIFY_PROMPT in call_messages[0].content
     # 原始对话消息保持在提示词之后
     assert call_messages[1] == messages[0]
+
+
+def test_agent_state_declares_verification_result():
+    """verification_result 必须在状态 schema 中声明，否则 LangGraph 会静默丢弃该键"""
+    graph = build_agent_graph(MagicMock())
+    # 编译后的图把状态 schema 展开为 channels：声明过的键才会生成对应通道，
+    # 未声明的键会被 LangGraph 静默丢弃，channels 中查不到
+    assert "verification_result" in graph.builder.channels
