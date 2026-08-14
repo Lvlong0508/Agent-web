@@ -88,6 +88,29 @@ class ChatService:
             for m in msgs
         ]
 
+    async def _save_run(
+        self,
+        conv_id: str,
+        user_id: str,
+        model: str,
+        status: str,
+        messages: list[dict],
+        error: str | None = None,
+    ) -> None:
+        """落库一条全链路运行记录；落库自身失败时静默跳过（不能干扰主流程）"""
+        try:
+            await self.agent_run_repo.create(AgentRun(
+                conversation_id=conv_id,
+                user_id=user_id,
+                model=model,
+                status=status,
+                error=error,
+                messages=messages,
+            ))
+        except Exception:
+            # 落库失败（如数据库不可用）不影响聊天主流程：静默跳过
+            pass
+
     # ----------------------------------------------------------------
     # Agent 图驱动聊天
     # ----------------------------------------------------------------
@@ -185,50 +208,22 @@ class ChatService:
             await self.msg_repo.create(assistant_msg)
 
             # 全链路落库（status=ok）
-            await self.agent_run_repo.create(AgentRun(
-                conversation_id=conv_id,
-                user_id=user_id,
-                model=model,
-                status="ok",
-                messages=trace_messages,
-            ))
+            await self._save_run(conv_id, user_id, model, "ok", trace_messages)
             run_recorded = True
         except Exception as e:
             # 运行异常：已收集到的消息序列仍落库并标记 error，便于开发者排查。
             # 注意此时用户消息已保存（在 try 之前），assistant 消息不保存
             # （没有最终回复），符合预期
-            try:
-                await self.agent_run_repo.create(AgentRun(
-                    conversation_id=conv_id,
-                    user_id=user_id,
-                    model=model,
-                    status="error",
-                    error=str(e),
-                    messages=trace_messages,
-                ))
-                run_recorded = True
-            except Exception:
-                # 错误落库自身失败（如数据库不可用）时不能遮蔽原始异常：
-                # 丢弃二次异常，保证原始异常 e 正常向上传播
-                pass
+            await self._save_run(conv_id, user_id, model, "error", trace_messages, error=str(e))
+            run_recorded = True
             raise
         finally:
             # 客户端中途断开（GeneratorExit/CancelledError 是 BaseException，
             # 不会触发上面的 except）时，用户消息已入库但 run 记录缺失：
-            # 这里补记一条 error 记录，保持两个集合一致
+            # 这里补记一条 error 记录，保持两个集合一致。
+            # 落库失败由 _save_run 内部静默吞掉，不干扰生成器关闭流程
             if not run_recorded:
-                try:
-                    await self.agent_run_repo.create(AgentRun(
-                        conversation_id=conv_id,
-                        user_id=user_id,
-                        model=model,
-                        status="error",
-                        error="流被中断（客户端断开或取消）",
-                        messages=trace_messages,
-                    ))
-                except Exception:
-                    # 兜底落库失败同样不向上抛，避免干扰生成器关闭流程
-                    pass
+                await self._save_run(conv_id, user_id, model, "error", trace_messages, error="流被中断（客户端断开或取消）")
 
         # 6. 发送结束标志
         yield "data: [DONE]\n\n"

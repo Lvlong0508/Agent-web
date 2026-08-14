@@ -1,8 +1,7 @@
 """agent 运行全链路记录测试：模型默认值、数据访问层与 chat_stream 落库"""
 
-import json
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
@@ -195,5 +194,78 @@ async def test_chat_stream_records_error_run():
         assert "模型调用超时" in run.error
         # 已收集到的消息仍保留（用户消息 + 中途 agent 输出）
         assert [m["role"] for m in run.messages] == ["user", "assistant"]
+        # 只落库一条 error 记录（finally 兜底不再补记），防止重复写入
+        assert service.agent_run_repo.create.call_count == 1
+    finally:
+        current_user_id.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_records_interrupted_run():
+    """客户端中途断开（生成器被 close）：finally 兜底落库一条 error 记录"""
+    token = current_user_id.set("anonymous")
+    try:
+        conv = Conversation(_id="c1", user_id="anonymous")
+        service = ChatService(MagicMock())
+        service.agent_run_repo = MagicMock()
+        service.agent_run_repo.create = AsyncMock(return_value=None)
+        service.conv_repo.get_by_id = AsyncMock(return_value=conv)
+        service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
+        service.msg_repo.create = AsyncMock(return_value=None)
+
+        final_msg = AIMessage(content="部分内容")
+        final_chunk = MagicMock()
+        final_chunk.content = "部分内容"
+        final_chunk.tool_call_chunks = None
+
+        async def fake_astream(input, **kwargs):
+            yield ("messages", (final_chunk, {"langgraph_node": "agent"}))
+            yield ("updates", {"agent": {"messages": [final_msg]}})
+
+        service.graph = MagicMock()
+        service.graph.astream = fake_astream
+
+        # 消费一段后主动关闭生成器，模拟客户端断开
+        agen = service.chat_stream("c1", "你好", settings.MODEL_OLLAMA)
+        await agen.__anext__()  # 消费第一个 token
+        await agen.aclose()     # 模拟客户端中途断开
+
+        run = service.agent_run_repo.create.call_args[0][0]
+        assert run.status == "error"
+        assert "流被中断" in run.error
+        assert run.messages[0] == {"role": "user", "content": "你好"}
+    finally:
+        current_user_id.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_keep_original_exception_when_save_fails():
+    """错误落库自身抛错时：不能遮蔽原始异常，原始异常仍向上传播"""
+    token = current_user_id.set("anonymous")
+    try:
+        conv = Conversation(_id="c1", user_id="anonymous")
+        service = ChatService(MagicMock())
+        service.agent_run_repo = MagicMock()
+        service.agent_run_repo.create = AsyncMock(side_effect=RuntimeError("落库也失败"))
+        service.conv_repo.get_by_id = AsyncMock(return_value=conv)
+        service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
+        service.msg_repo.create = AsyncMock(return_value=None)
+
+        async def fake_astream(input, **kwargs):
+            # 必须含一个 yield 使函数成为异步生成器（async for 需要迭代器而非协程）；
+            # 用不可达分支保证首次迭代立即抛模型异常
+            if False:
+                yield
+            raise RuntimeError("模型调用超时")
+
+        service.graph = MagicMock()
+        service.graph.astream = fake_astream
+
+        with pytest.raises(RuntimeError) as exc_info:
+            async for _ in service.chat_stream("c1", "你好", settings.MODEL_OLLAMA):
+                pass
+
+        # 原始异常（模型调用超时）必须向上传播，而不是被落库异常（落库也失败）顶替
+        assert "模型调用超时" in str(exc_info.value)
     finally:
         current_user_id.reset(token)
