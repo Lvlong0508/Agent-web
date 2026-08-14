@@ -9,7 +9,7 @@ xxx-service
  │   │   └── v1            # 按版本划分接口
  │   ├── services          # 业务逻辑层（对应Service）
  │   │                     # 处理核心业务、事务管理、复杂逻辑判断
- │   ├── models            # 数据模型层（对应Entity/Mapper）
+ │   ├── models            # 数据模型层（PO层，对应Entity/Mapper）
  │   │                     # ORM模型定义（SQLAlchemy/Peewee等），对应数据库表结构
  │   ├── schemas           # 数据校验与序列化层（对应DTO/VO）
  │   │                     # Pydantic模型或Marshmallow Schema，用于请求参数校验和响应数据格式化
@@ -31,3 +31,6 @@ xxx-service
  ├── requirements.txt / pyproject.toml  # 依赖管理
  └── .env                  # 环境变量配置文件
  ```
+### BO层：业务对象。聚合多个相关对象，简化业务入口
+### DO层：领域对象。包含业务逻辑，用于内存中的复杂业务计算
+### VO层：前端对象。最终展示给前端的数据
