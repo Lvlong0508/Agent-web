@@ -1,5 +1,7 @@
 """个人账单数据访问层：封装 expenses 表的增删改查与分页查询"""
 
+import datetime
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,6 +58,28 @@ class ExpenseRepo:
             .limit(page_size)
         )
         return list(result.scalars().all()), total
+
+    async def list_by_date_range(
+        self,
+        user_id: str,
+        start_date: datetime.date,
+        end_date: datetime.date,
+    ) -> list[Expense]:
+        """按日期范围查询该用户的账单（含边界日期），返回全部符合条件的记录。
+        供"上个月支出/某段时间账单"这类按时间筛选的查询使用；
+        结果按日期倒序、同日按 id 倒序，保证顺序稳定。
+        索引 (user_id, date, amount) 命中过滤与排序。
+        """
+        result = await self.session.execute(
+            select(Expense)
+            .where(
+                Expense.user_id == user_id,
+                Expense.date >= start_date,
+                Expense.date <= end_date,
+            )
+            .order_by(Expense.date.desc(), Expense.id.desc())
+        )
+        return list(result.scalars().all())
 
     async def update(self, expense: Expense, data: dict) -> Expense:
         """用传入的字段字典更新账单并提交，返回刷新后的对象"""

@@ -195,3 +195,84 @@ async def test_expense_isolation_by_user(service):
     # user-b 查不到 user-a 的账单：总数保持测试前不变
     assert page.total == before_b
     current_user_id.reset(token_b)
+
+
+@pytest.mark.asyncio
+async def test_list_by_date_range(service):
+    """按日期范围查询：只返回区间内账单，含边界日期，日期倒序排列"""
+    # 记录测试前各区间已有数量（库里可能有用户历史数据，不能假设为 0）
+    import datetime
+    from sqlalchemy import func, select
+
+    async def _count_in_range(start: datetime.date, end: datetime.date) -> int:
+        async with SessionLocal() as session:
+            return (
+                await session.execute(
+                    select(func.count()).select_from(Expense).where(
+                        Expense.user_id == settings.DEFAULT_USER_ID,
+                        Expense.date >= start,
+                        Expense.date <= end,
+                    )
+                )
+            ).scalar_one()
+
+    before_july = await _count_in_range(datetime.date(2026, 7, 1), datetime.date(2026, 7, 31))
+    before_year = await _count_in_range(datetime.date(2026, 1, 1), datetime.date(2026, 12, 31))
+
+    await _make(
+        ExpenseCreate(category=ExpenseCategory.FOOD, amount="10.00", date="2026-07-01"),
+        service,
+    )
+    await _make(
+        ExpenseCreate(category=ExpenseCategory.FOOD, amount="20.00", date="2026-07-15"),
+        service,
+    )
+    await _make(
+        ExpenseCreate(category=ExpenseCategory.TRANSPORT, amount="30.00", date="2026-08-01"),
+        service,
+    )
+
+    page = await service.list_by_date_range(
+        datetime.date(2026, 7, 1), datetime.date(2026, 7, 31)
+    )
+    # 本次新增 2 条 7 月账单：总数 = 测试前 7 月已有 + 2
+    assert page.total == before_july + 2
+    # 日期倒序：7月15日在7月1日之前；若历史数据同日则按 id 倒序，只校验相对顺序
+    dates = [str(i.date) for i in page.items]
+    assert dates.index("2026-07-15") < dates.index("2026-07-01")
+
+    # 全区间应包含本次全部 3 条新增
+    page_full = await service.list_by_date_range(
+        datetime.date(2026, 1, 1), datetime.date(2026, 12, 31)
+    )
+    assert page_full.total == before_year + 3
+
+
+@pytest.mark.asyncio
+async def test_list_by_date_range_swaps_reversed_dates(service):
+    """日期范围起止颠倒时自动交换，保证查询语义正确"""
+    import datetime
+    from sqlalchemy import func, select
+
+    # 记录测试前 7 月已有数量（库里有历史数据，相对断言）
+    async with SessionLocal() as session:
+        before_july = (
+            await session.execute(
+                select(func.count()).select_from(Expense).where(
+                    Expense.user_id == settings.DEFAULT_USER_ID,
+                    Expense.date >= datetime.date(2026, 7, 1),
+                    Expense.date <= datetime.date(2026, 7, 31),
+                )
+            )
+        ).scalar_one()
+
+    await _make(
+        ExpenseCreate(category=ExpenseCategory.FOOD, amount="5.00", date="2026-07-10"),
+        service,
+    )
+
+    # start > end：应交换后正常查询（含 7 月 10 日）
+    page = await service.list_by_date_range(
+        datetime.date(2026, 7, 31), datetime.date(2026, 7, 1)
+    )
+    assert page.total == before_july + 1

@@ -46,6 +46,13 @@ class ListExpensesArgs(BaseModel):
     page_size: int = Field(default=20, description="每页条数，限制在 1~100 之间")
 
 
+class ListExpensesByDateArgs(BaseModel):
+    """按日期范围查询账单的参数"""
+
+    start_date: str = Field(description="起始日期，格式 YYYY-MM-DD（含该日）")
+    end_date: str = Field(description="结束日期，格式 YYYY-MM-DD（含该日）")
+
+
 class UpdateExpenseArgs(BaseModel):
     """更新账单的参数（只更新传入字段）"""
 
@@ -104,6 +111,20 @@ def build_expense_tools(session_factory: Callable) -> list:
             resp = await ExpenseService(session).list(page=page, page_size=page_size)
         return resp.model_dump(mode="json")
 
+    @tool(args_schema=ListExpensesByDateArgs)
+    async def list_expenses_by_date(start_date: str, end_date: str) -> dict:
+        """按日期范围查询个人账单（含起始与结束日期），返回区间内全部账单。
+        适用于"上个月支出""某段时间的账单"等按时间筛选的问题；
+        日期格式 YYYY-MM-DD。"""
+        # 字符串日期转 datetime.date，交给业务层做区间查询
+        from datetime import date
+
+        start = date.fromisoformat(start_date)
+        end = date.fromisoformat(end_date)
+        async with session_factory() as session:
+            resp = await ExpenseService(session).list_by_date_range(start, end)
+        return resp.model_dump(mode="json")
+
     @tool(args_schema=UpdateExpenseArgs)
     async def update_expense(
         expense_id: int,
@@ -137,4 +158,4 @@ def build_expense_tools(session_factory: Callable) -> list:
             await ExpenseService(session).delete(expense_id)
         return {"deleted": True, "id": expense_id}
 
-    return [create_expense, get_expense, list_expenses, update_expense, delete_expense]
+    return [create_expense, get_expense, list_expenses, list_expenses_by_date, update_expense, delete_expense]

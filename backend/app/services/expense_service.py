@@ -1,5 +1,7 @@
 """个人账单业务层：串联数据访问、类型校验与分页组装"""
 
+import datetime
+
 from app.auth import get_current_user_id_or_raise
 from app.exceptions import NotFoundError
 from app.models.expense import Expense
@@ -45,6 +47,28 @@ class ExpenseService:
             page=page,
             page_size=page_size,
             total_pages=(total + page_size - 1) // page_size,
+        )
+
+    async def list_by_date_range(
+        self,
+        start_date: datetime.date,
+        end_date: datetime.date,
+    ) -> ExpensePage:
+        """按日期范围查询账单（含边界日期），返回分页结构（不分页，一次取全）。
+        供"上个月支出/某段时间账单"等按时间筛选的问题使用；
+        入参日期顺序若颠倒则交换，避免 SQL 语义错误。
+        """
+        user_id = get_current_user_id_or_raise()
+        # 校验日期区间：start 应不晚于 end，否则交换保证查询语义正确
+        if start_date > end_date:
+            start_date, end_date = end_date, start_date
+        items = await self.repo.list_by_date_range(user_id, start_date, end_date)
+        return ExpensePage(
+            items=[ExpenseResponse.model_validate(item) for item in items],
+            total=len(items),
+            page=1,
+            page_size=len(items) or 1,
+            total_pages=1,
         )
 
     async def get(self, expense_id: int) -> ExpenseResponse:

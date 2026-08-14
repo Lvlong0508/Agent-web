@@ -24,6 +24,7 @@ EXPECTED_TOOL_NAMES = {
     "create_expense",
     "get_expense",
     "list_expenses",
+    "list_expenses_by_date",
     "update_expense",
     "delete_expense",
     "get_now_time",
@@ -34,13 +35,14 @@ EXPECTED_EXPENSE_TOOL_NAMES = {
     "create_expense",
     "get_expense",
     "list_expenses",
+    "list_expenses_by_date",
     "update_expense",
     "delete_expense",
 }
 
 
-def test_build_expense_tools_returns_five_tools():
-    """测试工具工厂返回 5 个账单工具（不含时间工具），名称符合预期"""
+def test_build_expense_tools_returns_six_tools():
+    """测试工具工厂返回 6 个账单工具（不含时间工具），名称符合预期"""
     tools = build_expense_tools(SessionLocal)
     names = {t.name for t in tools}
     assert names == EXPECTED_EXPENSE_TOOL_NAMES
@@ -107,6 +109,30 @@ async def test_create_expense_tool_creates_record():
             await session.execute(select(Expense).where(Expense.id == result["id"]))
         ).scalar_one()
     assert row.category == "food"
+
+
+@pytest.mark.asyncio
+async def test_list_expenses_by_date_tool_filters_by_range():
+    """按日期范围工具真实查询：只返回区间内账单，供"上个月支出"类问题使用"""
+    tools = {t.name: t for t in build_expense_tools(SessionLocal)}
+    # 先造两条不同日期的账单（7月、8月各一条）
+    await tools["create_expense"].ainvoke(
+        {"category": "food", "amount": 10.0, "date": "2026-07-15", "description": "7月午餐"}
+    )
+    await tools["create_expense"].ainvoke(
+        {"category": "food", "amount": 20.0, "date": "2026-08-14", "description": "8月早餐"}
+    )
+
+    result = await tools["list_expenses_by_date"].ainvoke(
+        {"start_date": "2026-07-01", "end_date": "2026-07-31"}
+    )
+    # 7 月区间必须包含刚建的 7月午餐，且不能含 8 月的 8月早餐
+    # （区间内可能已有用户历史数据，故不做绝对 total 断言）
+    descriptions = [i["description"] for i in result["items"]]
+    assert "7月午餐" in descriptions
+    assert "8月早餐" not in descriptions
+    # 日期都在 7 月范围内
+    assert all(i["date"].startswith("2026-07") for i in result["items"])
 
 
 @pytest.mark.asyncio
