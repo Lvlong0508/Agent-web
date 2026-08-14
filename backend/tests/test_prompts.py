@@ -210,6 +210,22 @@ def test_system_prompt_exception_requires_checking_own_tools():
     assert "未经检查就声称没有工具" in SYSTEM_PROMPT
 
 
+def test_system_prompt_no_number_gap():
+    """合并沟通准则1-4后不应残留编号断层（从5.开始会让人困惑为何没有1-4），
+    铁律与唯一例外直接以文字表述，不编号"""
+    assert "5. 铁律" not in SYSTEM_PROMPT
+    assert "6. 唯一例外" not in SYSTEM_PROMPT
+    assert "铁律：" in SYSTEM_PROMPT
+    assert "唯一例外：" in SYSTEM_PROMPT
+
+
+def test_verify_prompt_no_tool_exception_uses_author_connector():
+    """规则4例外中"无可用工具/无法查询"与"对照工具清单确实无对应工具"
+    应使用"且"连接，避免顿号被误解为两个并列的动作要求（用户审查）"""
+    assert "无法查询，且对照" in VERIFY_PROMPT
+    assert "，且" in VERIFY_PROMPT
+
+
 def test_rewrite_prompt_tells_agent_to_reorganize():
     """重写轮指令必须重置前提（回答已被清空）、声明质检员身份、禁止道歉，
     否则 agent 会暴露"上一条回复未通过校验"这类过程性话术或输出道歉（实测出现"非常抱歉"）。
