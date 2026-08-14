@@ -5,12 +5,21 @@ import pytest_asyncio
 from sqlalchemy import delete, text
 from sqlalchemy.exc import OperationalError
 
+from app.auth import current_user_id
 from app.config.settings import settings
 from app.exceptions import NotFoundError
 from app.middleware.mysql import Base, SessionLocal, engine
 from app.models.expense import Expense, ExpenseCategory
 from app.schemas.expense import ExpenseCreate, ExpenseUpdate
 from app.services.expense_service import ExpenseService
+
+
+@pytest.fixture(autouse=True)
+def user_context():
+    """每个用例注入默认用户身份（模拟请求依赖），用例后复位"""
+    token = current_user_id.set(settings.DEFAULT_USER_ID)
+    yield
+    current_user_id.reset(token)
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -140,3 +149,20 @@ async def test_indexes_created(service):
 
     expected = {"idx_user_date_amount", "idx_user_amount_category", "idx_user_amount"}
     assert expected <= indexes
+
+@pytest.mark.asyncio
+async def test_expense_isolation_by_user(service):
+    """不同 user_id 的数据互相隔离：user-a 建的账单 user-b 查不到"""
+    token_a = current_user_id.set("user-a")
+    data = await _make(
+        ExpenseCreate(category=ExpenseCategory.FOOD, amount="1.00", date="2026-08-01"),
+        service,
+    )
+    current_user_id.reset(token_a)
+
+    token_b = current_user_id.set("user-b")
+    with pytest.raises(NotFoundError):
+        await service.get(data["id"])
+    page = await service.list()
+    assert page.total == 0
+    current_user_id.reset(token_b)
