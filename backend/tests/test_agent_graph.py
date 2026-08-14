@@ -14,6 +14,8 @@ from app.services.agent_graph import (
     route_after_verify,
     MAX_VERIFY_RETRIES,
     Verdict,
+    _decide_verification,
+    _run_verdict,
 )
 from app.services.prompts import VERIFY_PROMPT
 
@@ -396,3 +398,50 @@ def test_route_after_verify_without_feedback():
 def test_max_verify_retries_is_two():
     """重试上限固定为 2 次"""
     assert MAX_VERIFY_RETRIES == 2
+
+
+def test_decide_verification_accurate_passes():
+    """准确：反馈清空，result=pass，计数不变"""
+    state = {"rewrite_count": 0}
+    out = _decide_verification(Verdict(is_accurate=True, issues=""), state)
+    assert out["verification_result"] == "pass"
+    assert out["verification_feedback"] == ""
+    assert out["rewrite_count"] == 0
+
+
+def test_decide_verification_retry_increments_count():
+    """不准确且未超限：写入反馈，计数+1，result=retry"""
+    state = {"rewrite_count": 0}
+    out = _decide_verification(Verdict(is_accurate=False, issues="金额错误"), state)
+    assert out["verification_result"] == "retry"
+    assert out["verification_feedback"] == "金额错误"
+    assert out["rewrite_count"] == 1
+
+
+def test_decide_verification_fail_when_over_limit():
+    """不准确且已达上限：清空反馈，result=fail，计数不变"""
+    state = {"rewrite_count": MAX_VERIFY_RETRIES}
+    out = _decide_verification(Verdict(is_accurate=False, issues="还是错"), state)
+    assert out["verification_result"] == "fail"
+    assert out["verification_feedback"] == ""
+    assert out["rewrite_count"] == MAX_VERIFY_RETRIES
+
+
+@pytest.mark.asyncio
+async def test_run_verdict_injects_verify_prompt_and_calls_structured_llm():
+    """_run_verdict 注入验证提示词并调用结构化输出"""
+    mock_llm = MagicMock()
+    structured = MagicMock()
+    structured.ainvoke = AsyncMock(return_value=Verdict(is_accurate=True, issues=""))
+    mock_llm.with_structured_output.return_value = structured
+
+    messages = [HumanMessage(content="hi")]
+    result = await _run_verdict(mock_llm, messages)
+
+    assert result.is_accurate is True
+    # 验证提示词作为 SystemMessage 前置注入
+    call_messages = structured.ainvoke.call_args.args[0]
+    assert call_messages[0].type == "system"
+    assert VERIFY_PROMPT in call_messages[0].content
+    # 原始对话消息保持在提示词之后
+    assert call_messages[1] == messages[0]

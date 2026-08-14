@@ -1,6 +1,6 @@
 from typing import Literal
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
@@ -105,6 +105,38 @@ def route_after_verify(state: AgentState) -> Literal["agent", END]:
     if state.get("verification_feedback"):
         return "agent"
     return END
+
+
+def _decide_verification(verdict: Verdict, state: AgentState) -> dict:
+    """根据验证结论与当前重写次数决定后续状态（纯函数，便于单测）"""
+    rewrite_count = state.get("rewrite_count", 0)
+    # 准确：清空反馈字段，result=pass，走 END
+    if verdict.is_accurate:
+        return {
+            "verification_feedback": "",
+            "verification_result": "pass",
+            "rewrite_count": rewrite_count,
+        }
+    # 不准确但未超限：反馈写入状态、计数+1，result=retry，回 agent 重写
+    if rewrite_count < MAX_VERIFY_RETRIES:
+        return {
+            "verification_feedback": verdict.issues,
+            "verification_result": "retry",
+            "rewrite_count": rewrite_count + 1,
+        }
+    # 已达上限：清空反馈、result=fail，走 END（chat_service 检测到 fail 返回固定文案）
+    return {
+        "verification_feedback": "",
+        "verification_result": "fail",
+        "rewrite_count": rewrite_count,
+    }
+
+
+async def _run_verdict(llm, messages) -> Verdict:
+    """调用结构化输出 LLM，基于完整对话（含工具结果与候选回复）得到验证结论"""
+    structured = llm.with_structured_output(Verdict)
+    # 验证提示词作为 SystemMessage 前置注入，让 LLM 明确校验职责
+    return await structured.ainvoke([SystemMessage(content=VERIFY_PROMPT), *messages])
 
 
 def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
