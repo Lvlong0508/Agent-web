@@ -38,3 +38,16 @@ def test_get_current_user_id_sets_and_resets():
     with pytest.raises(StopIteration):
         next(gen)
     assert current_user_id.get() is None
+
+
+def test_chat_api_requires_user_header(client):
+    """聊天 API 不带 X-User-Id 时返回 400（API 层强制）"""
+    from app.middleware.mongodb import get_db
+
+    # 覆盖 MongoDB 依赖为无操作，避免解析依赖时去连接数据库
+    app.dependency_overrides[get_db] = lambda: None
+    try:
+        resp = client.post("/chat/conversations")
+        assert resp.status_code == 400
+    finally:
+        app.dependency_overrides.clear()

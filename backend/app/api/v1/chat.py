@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.auth import get_current_user_id
 from app.middleware.mongodb import get_db
 from app.middleware.mysql import SessionLocal  # 会话工厂：传给 ChatService 供 agent 工具开会话
 from app.services.chat_service import ChatService
@@ -18,51 +19,56 @@ from app.schemas.chat import (
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
-# POST /chat/conversations — 创建新对话（无需登录）
+# POST /chat/conversations — 创建新对话（需 X-User-Id 头标识用户）
 @router.post("/conversations", status_code=201, response_model=ConversationResponse)
 async def create_conversation(
     db: AsyncIOMotorDatabase = Depends(get_db),
+    _user_id: str = Depends(get_current_user_id),
 ):
     service = ChatService(db, session_factory=SessionLocal)
     return await service.create_conversation()
 
 
-# GET /chat/conversations — 获取对话列表（无需登录）
+# GET /chat/conversations — 获取对话列表（需 X-User-Id 头标识用户）
 @router.get("/conversations", response_model=list[ConversationListItem])
 async def list_conversations(
     db: AsyncIOMotorDatabase = Depends(get_db),
+    _user_id: str = Depends(get_current_user_id),
 ):
     service = ChatService(db, session_factory=SessionLocal)
     return await service.list_conversations()
 
 
-# DELETE /chat/conversations/{conv_id} — 删除对话（无需登录）
+# DELETE /chat/conversations/{conv_id} — 删除对话（需 X-User-Id 头标识用户）
 @router.delete("/conversations/{conv_id}", response_model=DeleteResponse)
 async def delete_conversation(
     conv_id: str,
     db: AsyncIOMotorDatabase = Depends(get_db),
+    _user_id: str = Depends(get_current_user_id),
 ):
     service = ChatService(db, session_factory=SessionLocal)
     await service.delete_conversation(conv_id)
     return DeleteResponse()
 
 
-# GET /chat/conversations/{conv_id}/messages — 获取历史消息（无需登录）
+# GET /chat/conversations/{conv_id}/messages — 获取历史消息（需 X-User-Id 头标识用户）
 @router.get("/conversations/{conv_id}/messages", response_model=list[MessageResponse])
 async def get_messages(
     conv_id: str,
     db: AsyncIOMotorDatabase = Depends(get_db),
+    _user_id: str = Depends(get_current_user_id),
 ):
     service = ChatService(db, session_factory=SessionLocal)
     return await service.get_messages(conv_id)
 
 
-# POST /chat/conversations/{conv_id}/messages — 发送消息 & SSE 流式回复（无需登录）
+# POST /chat/conversations/{conv_id}/messages — 发送消息 & SSE 流式回复（需 X-User-Id 头标识用户）
 @router.post("/conversations/{conv_id}/messages")
 async def send_message(
     conv_id: str,
     body: SendMessageRequest,
     db: AsyncIOMotorDatabase = Depends(get_db),
+    _user_id: str = Depends(get_current_user_id),
 ):
     service = ChatService(db, session_factory=SessionLocal)
     return StreamingResponse(
