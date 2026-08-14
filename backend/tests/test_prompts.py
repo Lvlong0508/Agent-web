@@ -24,9 +24,16 @@ def test_title_template_mentions_short_title():
 
 
 def test_system_prompt_defines_role():
-    """测试系统提示词包含角色名"小励"并承诺好的体验"""
+    """测试系统提示词包含角色名"小励"并承诺耐心的友好态度"""
     assert "小励" in SYSTEM_PROMPT
-    assert "好的体验" in SYSTEM_PROMPT
+    assert "耐心" in SYSTEM_PROMPT
+    assert "友好" in SYSTEM_PROMPT
+
+
+def test_system_prompt_keeps_clarification_requirement():
+    """合并沟通准则后必须保留"信息不足时先追问确认"：多轮对话中避免助手
+    在模糊场景下硬答或猜测数据，间接踩中"未经工具核实"的红线"""
+    assert "追问确认" in SYSTEM_PROMPT
 
 
 def test_system_prompt_requires_tool_for_non_chat_questions():
