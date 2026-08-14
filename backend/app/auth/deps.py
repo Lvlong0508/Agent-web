@@ -7,13 +7,20 @@ from fastapi import Header, HTTPException
 current_user_id: ContextVar[str | None] = ContextVar("current_user_id", default=None)
 
 
-def get_current_user_id(x_user_id: str | None = Header(default=None)) -> str:
+async def get_current_user_id(x_user_id: str | None = Header(default=None)) -> str:
     """FastAPI 依赖：从 X-User-Id 请求头读取用户并写入 contextvar。
 
     必须用 Header(default=None) 注解，FastAPI 才会把它当请求头解析；
     否则默认当作查询参数，读不到用户身份。
     缺失时抛 400；存在时 set 进 contextvar，yield 后由 finally 复位
     （等价于 Java ThreadLocal 的 finally remove），保证不泄漏到其他请求。
+
+    必须写成 async 生成器依赖：若是同步生成器（def + yield），FastAPI 会把
+    __enter__（set）和 __exit__（reset）放到 anyio 线程池的不同线程执行，
+    不同线程属于不同 contextvars Context，reset(token) 会抛
+    'Token was created in a different Context'，且 endpoint 读到的 contextvar
+    是主协程的 None（永远拿不到用户身份）。async 依赖在同一请求协程的
+    Context 中执行，set/reset 上下文一致，服务层才能读到注入的用户 ID。
     """
     if not x_user_id:
         raise HTTPException(status_code=400, detail="X-User-Id header required")
