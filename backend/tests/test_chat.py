@@ -9,7 +9,7 @@ from app.config.settings import settings
 from app.models.conversation import Conversation
 from app.schemas.chat import SendMessageRequest
 from app.services.chat_service import ChatService
-from app.services.prompts import REPLY_ON_VERIFY_FAILED, SYSTEM_PROMPT, build_system_prompt
+from app.services.agent.prompts import REPLY_ON_VERIFY_FAILED, SYSTEM_PROMPT, build_system_prompt
 
 
 @pytest.fixture

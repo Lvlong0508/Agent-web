@@ -1,6 +1,6 @@
 """提示词集中管理模块测试：验证模板拼装与系统提示词内容"""
 
-from app.services.prompts import (
+from app.services.agent.prompts import (
     REPLY_ON_VERIFY_FAILED,
     SYSTEM_PROMPT,
     TITLE_GENERATION_TEMPLATE,

@@ -13,7 +13,7 @@ from app.auth import current_user_id
 from app.config.settings import settings
 from app.middleware.mysql import Base, SessionLocal, engine
 from app.models.expense import Expense
-from app.services.agent_graph import Verdict, build_agent_graph
+from app.services.agent.agent_graph import Verdict, build_agent_graph
 from app.services.chat_service import ChatService
 from app.tools import get_tools
 from app.tools.expense_tool import build_expense_tools
@@ -231,8 +231,8 @@ async def test_contextvar_propagates_into_agent_tools():
         async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
             return Verdict(is_accurate=True, issues="")
 
-        with patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict):
-            with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
+        with patch("app.services.agent.agent_graph._run_verdict", side_effect=fake_run_verdict):
+            with patch("app.services.agent.agent_graph.create_llm", side_effect=fake_create_llm):
                 async for _ in graph.astream(
                     {"messages": [HumanMessage(content="记一笔账")], "conv_id": "c1", "user_id": "user-tool", "model": settings.MODEL_OLLAMA},
                     stream_mode="messages",
@@ -311,8 +311,8 @@ async def test_agent_tool_loop_returns_final_reply_and_filters_mid_round():
         async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
             return Verdict(is_accurate=True, issues="")
 
-        with patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict):
-            with patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm):
+        with patch("app.services.agent.agent_graph._run_verdict", side_effect=fake_run_verdict):
+            with patch("app.services.agent.agent_graph.create_llm", side_effect=fake_create_llm):
                 async for line in service.chat_stream(
                     "c1", "查一下账单", settings.MODEL_OLLAMA, thinking=False
                 ):

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from app.config.settings import settings
 from app.repositories.conversation_repo import ConversationRepo
-from app.services.prompts import build_rewrite_prompt, build_title_prompt, VERIFY_PROMPT
+from app.services.agent.prompts import build_rewrite_prompt, build_title_prompt, VERIFY_PROMPT
 
 # 模块级日志器：供节点异常降级等场景记录可诊断信息，便于线上排查
 logger = logging.getLogger(__name__)

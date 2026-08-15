@@ -10,8 +10,8 @@ from app.repositories.message_repo import MessageRepo
 from app.models.message import Message
 from app.models.agent_run import AgentRun
 from app.repositories.agent_run_repo import AgentRunRepo
-from app.services.agent_graph import build_agent_graph
-from app.services.prompts import REPLY_ON_VERIFY_FAILED, build_system_prompt
+from app.services.agent.agent_graph import build_agent_graph
+from app.services.agent.prompts import REPLY_ON_VERIFY_FAILED, build_system_prompt
 from app.tools import get_tools
 
 
