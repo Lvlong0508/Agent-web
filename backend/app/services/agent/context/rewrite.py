@@ -2,6 +2,7 @@
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
+from app.services.agent.context.agent import HISTORY_REFERENCE_MARKER
 from app.services.agent.prompts import build_rewrite_prompt
 
 # 重写指令的 HumanMessage 标记名：用于在消息流中区分"本轮用户问题"与
@@ -29,12 +30,15 @@ def build_rewrite_messages(messages, feedback: str) -> list:
     # 否则：只保留 系统提示词 + 本轮用户问题 + 重写指令
     # 系统提示词是对话设定，保留；历史工具轮/重写轮/被否决候选一律丢弃
     system_msgs = [m for m in messages if isinstance(m, SystemMessage)]
-    # 本轮用户问题：最后一条不带标记的 HumanMessage（带标记的是质检员修正指令）
+    # 本轮用户问题：最后一条不带标记的 HumanMessage（带标记的是质检员修正指令或
+    # 折叠的历史参考块，两者都不是本轮真实问题，必须一并排除）
     user_question = next(
         (
             m
             for m in reversed(messages)
-            if isinstance(m, HumanMessage) and getattr(m, "name", None) != REWRITE_INSTRUCTION_MARKER
+            if isinstance(m, HumanMessage)
+            and getattr(m, "name", None)
+            not in (REWRITE_INSTRUCTION_MARKER, HISTORY_REFERENCE_MARKER)
         ),
         None,
     )

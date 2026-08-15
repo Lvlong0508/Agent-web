@@ -2,6 +2,7 @@
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
+from app.services.agent.context.agent import HISTORY_REFERENCE_MARKER
 from app.services.agent.context.rewrite import (
     REWRITE_INSTRUCTION_MARKER,
     build_rewrite_messages,
@@ -50,3 +51,45 @@ def test_build_rewrite_messages_keeps_tool_result_round():
     assert isinstance(result[-1], HumanMessage)
     assert result[-1].name == REWRITE_INSTRUCTION_MARKER
     assert "金额错误" in result[-1].content
+
+
+def test_build_rewrite_messages_excludes_history_reference_block():
+    """重写轮定位本轮用户问题时必须排除历史参考块（name=history_reference）。
+    兜底形态：build_agent_messages 在历史末条非 user 时无当前问题，消息只剩
+    [System, 历史参考块]，旧逻辑会把折叠历史误当成本轮问题，重写轮将失去
+    真正的问题。排除标记后，无当前问题时应只返回 系统提示词 + 重写指令。"""
+    messages = [
+        SystemMessage(content=SYSTEM_PROMPT),
+        HumanMessage(
+            content="<user>你好</user>\n<assistant>你好，我是小励</assistant>",
+            name=HISTORY_REFERENCE_MARKER,
+        ),
+    ]
+    result = build_rewrite_messages(messages, "金额错误")
+
+    # 历史参考块不进入重写轮消息（无当前问题时它不应被当成本轮问题）
+    assert not any(getattr(m, "name", None) == HISTORY_REFERENCE_MARKER for m in result)
+    # 无当前问题：只剩 系统提示词 + 重写指令，没有用户消息混入
+    assert len(result) == 2
+    assert result[0].type == "system"
+    assert result[1].name == REWRITE_INSTRUCTION_MARKER
+    assert "金额错误" in result[1].content
+
+
+def test_build_rewrite_messages_keeps_current_with_history_block():
+    """正常形态（生产主路径）：历史块与当前问题共存时，重写轮仍能正确定位
+    本轮用户问题（历史块在本轮之前，reversed 先遇本轮问题，排除标记是双保险）"""
+    messages = [
+        SystemMessage(content=SYSTEM_PROMPT),
+        HumanMessage(
+            content="<user>你好</user>\n<assistant>你好，我是小励</assistant>",
+            name=HISTORY_REFERENCE_MARKER,
+        ),
+        HumanMessage(content="本轮问题：我的账单多少？"),
+        AIMessage(content="被否决的旧候选"),
+    ]
+    result = build_rewrite_messages(messages, "金额错误")
+
+    # 历史块被剔除，本轮问题保留为第一条 human
+    assert not any(getattr(m, "name", None) == HISTORY_REFERENCE_MARKER for m in result)
+    assert result[1].content == "本轮问题：我的账单多少？"

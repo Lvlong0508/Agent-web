@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
+from app.services.agent.context.agent import HISTORY_REFERENCE_MARKER
 from app.services.agent.context.verdict import (
     Verdict,
     build_verdict_input,
@@ -321,3 +322,50 @@ async def test_run_verdict_passes_current_date_to_verifier():
     assert len(system_msgs) == 2
     assert system_msgs[0].content == VERIFY_PROMPT
     assert "当前日期：2026-08-15" in system_msgs[1].content
+
+
+def test_build_verdict_input_excludes_history_reference_block():
+    """质检输入定位本轮用户问题时必须排除历史参考块（name=history_reference）。
+    兜底形态：消息只剩 [历史参考块, 候选回复]（build_agent_messages 在历史末条
+    非 user 时的异常兜底），旧逻辑会把折叠历史误当成本轮问题、写进参考上下文，
+    质检员被历史内容干扰。排除标记后，参考上下文为空，仅剩 当前日期 + 候选回复。"""
+    messages = [
+        HumanMessage(
+            content="<user>你好</user>",
+            name=HISTORY_REFERENCE_MARKER,
+        ),
+        AIMessage(content="候选回复"),
+    ]
+    reduced, serialized = build_verdict_input(messages)
+
+    # 历史参考块不进参考上下文（兜底形态下无本轮问题，参考为空）
+    assert not any(
+        getattr(m, "name", None) == HISTORY_REFERENCE_MARKER for m in reduced
+    )
+    # 精简上下文 = 当前日期参考 + 候选回复（无历史块混入）
+    assert [type(m) for m in reduced] == [SystemMessage, AIMessage]
+    assert reduced[-1].content == "候选回复"
+
+
+def test_build_verdict_input_keeps_current_with_history_block():
+    """正常形态（生产主路径）：历史块与当前问题共存时，质检定位仍命中本轮问题。
+    历史块在消息流前面，遍历时先命中它再命中本轮，后者覆盖前者；排除标记
+    保证即便顺序变化也不会把历史块当成本轮问题"""
+    messages = [
+        HumanMessage(
+            content="<user>你好</user>\n<assistant>你好，我是小励</assistant>",
+            name=HISTORY_REFERENCE_MARKER,
+        ),
+        HumanMessage(content="本轮问题：我的账单多少？"),
+        ToolMessage(content='{"total": 2}', name="list_expenses", tool_call_id="1"),
+        AIMessage(content="你有 2 笔支出"),
+    ]
+    reduced, serialized = build_verdict_input(messages)
+
+    # 本轮问题被正确识别（历史块不干扰），工具结果归属本轮
+    assert reduced[1].content == "本轮问题：我的账单多少？"
+    assert reduced[2].content == '{"total": 2}'
+    assert reduced[3].content == "你有 2 笔支出"
+    assert not any(
+        getattr(m, "name", None) == HISTORY_REFERENCE_MARKER for m in reduced
+    )
