@@ -1,4 +1,4 @@
-"""组合根：收集能力 → 校验 → 注册节点 → 汇总工具 → 连线 → compile。
+"""组合根：收集能力 → 校验 → 注册节点 → 连线 → 编译。
 
 设计要点（规格 v3 第 6.3 节）：
 - 能力注册顺序由 capabilities/__init__.py 保证（core_agent 第一位）
@@ -9,6 +9,7 @@
 """
 
 import logging
+from typing import Any
 
 from langgraph.graph import StateGraph
 
@@ -44,34 +45,35 @@ def _validate_state_keys(capabilities: list[AgentCapability], state_cls) -> None
                 )
 
 
-def _collect_tools(capabilities: list[AgentCapability], external_tools: list | None = None) -> list:
-    """汇总全部能力的工具贡献与外部工具；检测工具重名（重名抛错）"""
-    tools = []
+def _validate_tool_names(capabilities: list[AgentCapability], external_tools: list | None = None) -> None:
+    """仅校验工具名唯一性（能力贡献 + 外部注入），不负责注入。
+
+    工具注入在能力构造时通过外部 tools 完成（见 build_agent_graph 第 1 步），
+    此处只做"重名即抛错"的兜底校验，避免未来某能力贡献了工具却因重名被
+    静默忽略（规格 6.3：工具重名必须在启动期暴露）。
+    """
     seen_names: set[str] = set()
     for cap in capabilities:
         for tool in cap.tool_contributions():
             if tool.name in seen_names:
                 raise CapabilityRegistryError(cap.name, f"工具重名: {tool.name}")
             seen_names.add(tool.name)
-            tools.append(tool)
     for tool in external_tools or []:
         if tool.name in seen_names:
             raise CapabilityRegistryError("__root__", f"外部工具与能力工具重名: {tool.name}")
         seen_names.add(tool.name)
-        tools.append(tool)
-    return tools
 
 
-def build_agent_graph(conv_repo, capabilities: list[AgentCapability] | None = None, tools: list | None = None):
+def build_agent_graph(conv_repo, capabilities: list[AgentCapability] | None = None, tools: list | None = None) -> Any:
     """组合根：按注册顺序构建 agent 图。
 
     conv_repo：对话仓库
     capabilities：能力列表；缺省时用 capabilities/__init__.py 的 get_capabilities()
-    tools：外部注入的工具列表（供汇总）；缺省时从能力 tool_contributions() 汇总
+    tools：外部注入的工具列表（仅用于工具重名校验；实际注入在能力构造时完成）
 
-    打破"构造能力需要 tools、汇总 tools 又依赖能力"的循环：缺省构建时外部 tools
+    打破"构造能力需要 tools、校验 tools 又依赖能力"的循环：缺省构建时外部 tools
     已由调用方（chat_service 经 get_tools()）独立生成，直接注入能力构造器即可；
-    能力内部的 tool_contributions() 在最后统一汇总，与外部 tools 合并并做重名校验。
+    能力内部的 tool_contributions() 在此处只做重名校验，不负责工具注入。
     """
     # 1. 构造能力列表：缺省时从能力注册表构造。get_capabilities 的构造器只持有
     #    工具引用、不注册节点，无副作用，可直接用外部 tools 打破循环
@@ -84,19 +86,20 @@ def build_agent_graph(conv_repo, capabilities: list[AgentCapability] | None = No
     # 3. 校验每个能力声明的 state_keys 字段已预定义在 AgentState 中
     _validate_state_keys(capabilities, AgentState)
 
-    # 4. 构建图，注册节点（必需能力失败中断启动，可选能力失败跳过并记日志）
+    # 4. 工具名校验：提前暴露重名，避免图注册到一半才失败（fail fast）
+    _validate_tool_names(capabilities, tools)
+
+    # 5. 构建图，注册节点（必需能力失败中断启动，可选能力失败跳过并记日志）
     builder = StateGraph(AgentState)
-    registered_nodes: set[str] = set()
     for cap in capabilities:
         try:
-            node_names = cap.register_nodes(builder)
-            registered_nodes.update(node_names)
+            cap.register_nodes(builder)
         except Exception as e:
             if cap.is_required:
                 raise CapabilityRegistryError(cap.name, f"注册失败（必需能力）: {e}") from e
             logger.error("可选能力 [%s] 注册失败，已跳过: %s", cap.name, e)
 
-    # 5. 连线（此时所有节点已注册，connect 可安全引用；失败同注册策略）
+    # 6. 连线（此时所有节点已注册，connect 可安全引用；失败同注册策略）
     for cap in capabilities:
         try:
             cap.connect(builder)
@@ -105,8 +108,11 @@ def build_agent_graph(conv_repo, capabilities: list[AgentCapability] | None = No
                 raise CapabilityRegistryError(cap.name, f"连线失败（必需能力）: {e}") from e
             logger.error("可选能力 [%s] 连线失败，已跳过: %s", cap.name, e)
 
-    # 6. 汇总工具与重名检测（能力贡献 + 外部注入）
-    _collect_tools(capabilities, tools)
-
-    # 7. 编译（LangGraph 内部校验边引用节点的存在性，异常时附带缺失节点名）
-    return builder.compile()
+    # 7. 编译（LangGraph 内部校验边引用节点的存在性）
+    try:
+        graph = builder.compile()
+    except Exception as e:
+        # 编译失败（如引用了未注册/被跳过的节点）统一包装为 CapabilityRegistryError，
+        # 附带明确原因，避免裸 LangGraph 错误难定位
+        raise CapabilityRegistryError("__root__", f"图编译失败: {e}") from e
+    return graph

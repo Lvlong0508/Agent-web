@@ -41,7 +41,8 @@ class AgentCapability(ABC):
     def register_nodes(self, builder: StateGraph) -> list[str]:
         """注册本能力提供的节点，返回注册的节点名列表。
 
-        组合根用返回值做连线引用校验（connect 引用的节点必须存在）。
+        返回值仅作组合根文档化参考（记录能力贡献了哪些节点），不用于连线校验；
+        connect() 引用了未注册节点的真实校验由 LangGraph compile() 兜底。
         """
         return []
 
@@ -53,5 +54,8 @@ class AgentCapability(ABC):
         """
 
     def tool_contributions(self) -> list[BaseTool]:
-        """本能力提供的工具列表，组合根汇总后注入 tools 锚点（供主 Agent 调用）"""
+        """本能力提供的工具列表；组合根仅对其做重名校验（不负责注入）。
+
+        工具注入在能力构造时通过外部 tools 完成（见 registry.build_agent_graph）。
+        """
         return []
