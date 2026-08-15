@@ -18,6 +18,8 @@ from app.services.agent.registry import build_agent_graph
 from app.services.agent.context.agent import build_agent_messages
 # 能力事件系统：订阅业务事件（标题推送 / verifier 判定）与统一消息序列化
 from app.services.agent.events import CapabilityEvent, EventRouter, serialize_message
+from app.services.agent.capabilities.title.events import TITLE_COMPLETED_EVENT
+from app.services.agent.capabilities.verifier.events import VERIFIER_VERDICT_EVENT
 from app.services.agent.prompts import REPLY_ON_VERIFY_FAILED
 from app.tools import get_tools
 
@@ -198,8 +200,8 @@ class ChatService:
                 full_response = REPLY_ON_VERIFY_FAILED
                 _enqueue({"final": full_response})
 
-        router.subscribe("title.completed", on_title)
-        router.subscribe("verifier.verdict", on_verdict)
+        router.subscribe(TITLE_COMPLETED_EVENT, on_title)
+        router.subscribe(VERIFIER_VERDICT_EVENT, on_verdict)
 
         try:
             async for mode, data in self.graph.astream(
