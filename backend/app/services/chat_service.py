@@ -147,7 +147,7 @@ class ChatService:
         # 今天是哪年，不会幻觉成往年（实测用 2023 年查询当月账单致查空）
         today = time.strftime("%Y-%m-%d", time.localtime())
         # 首轮上下文组装已抽到 context 包（纯函数，可独立单测）：
-        # 系统提示词前置（含日期）+ 历史消息按序转换
+        # 系统提示词前置（含日期）+ 历史折叠为 name 标记参考块（滑动窗口）+ 本轮问题独立
         langchain_messages = build_agent_messages(history, today)
 
         # 4. 运行 agent 图，同时监听两种流模式：
@@ -171,8 +171,9 @@ class ChatService:
                     "user_id": user_id,  # 注入当前用户：图节点查询按用户隔离
                     "model": model,
                     "thinking": thinking,
-                    # 精纯历史参考（含本轮 user）：与传给 agent 的记忆一致，来自
-                    # MongoDB 的 user/assistant 消息，无工具轮/重写轮噪音。
+                    # 精纯历史参考（含本轮 user）：来自 context 折叠后的
+                    # langchain_messages[1:] = [历史参考块, 本轮问题]，与传给
+                    # agent 的记忆一致，无工具轮/重写轮噪音。
                     # 供质检员理解上下文（如历史里用户说过自己叫小明），
                     # 避免质检员只看本轮而误判基于记忆的回复
                     "history_reference": langchain_messages[1:],
