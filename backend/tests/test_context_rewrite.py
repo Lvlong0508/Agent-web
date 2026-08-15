@@ -54,20 +54,23 @@ def test_build_rewrite_messages_keeps_tool_result_round():
 
 
 def test_build_rewrite_messages_excludes_history_reference_block():
-    """重写轮定位本轮用户问题时必须排除历史参考块（name=history_reference），
-    否则会把折叠的历史误当成本轮问题，重写轮将失去真正的问题"""
+    """重写轮定位本轮用户问题时必须排除历史参考块（name=history_reference）。
+    兜底形态：build_agent_messages 在历史末条非 user 时无当前问题，消息只剩
+    [System, 历史参考块]，旧逻辑会把折叠历史误当成本轮问题，重写轮将失去
+    真正的问题。排除标记后，无当前问题时应只返回 系统提示词 + 重写指令。"""
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
         HumanMessage(
             content="<user>你好</user>\n<assistant>你好，我是小励</assistant>",
             name=HISTORY_REFERENCE_MARKER,
         ),
-        HumanMessage(content="本轮问题：我的账单多少？"),
-        AIMessage(content="被否决的旧候选"),
     ]
     result = build_rewrite_messages(messages, "金额错误")
 
-    # 历史参考块不进入重写轮消息（与旧候选一起被剔除）
+    # 历史参考块不进入重写轮消息（无当前问题时它不应被当成本轮问题）
     assert not any(getattr(m, "name", None) == HISTORY_REFERENCE_MARKER for m in result)
-    # 本轮用户问题被正确识别并保留
-    assert result[1].content == "本轮问题：我的账单多少？"
+    # 无当前问题：只剩 系统提示词 + 重写指令，没有用户消息混入
+    assert len(result) == 2
+    assert result[0].type == "system"
+    assert result[1].name == REWRITE_INSTRUCTION_MARKER
+    assert "金额错误" in result[1].content
