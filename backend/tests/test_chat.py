@@ -9,7 +9,7 @@ from app.config.settings import settings
 from app.models.conversation import Conversation
 from app.schemas.chat import SendMessageRequest
 from app.services.chat_service import ChatService
-from app.services.prompts import REPLY_ON_VERIFY_FAILED, SYSTEM_PROMPT
+from app.services.prompts import REPLY_ON_VERIFY_FAILED, SYSTEM_PROMPT, build_system_prompt
 
 
 @pytest.fixture
@@ -193,7 +193,10 @@ async def test_chat_stream_prepends_system_prompt(chat_service):
     # 注入到图的消息流：第一条是系统提示词，随后才是用户消息
     messages = graph_input["messages"]
     assert isinstance(messages[0], SystemMessage)
-    assert messages[0].content == SYSTEM_PROMPT
+    # 系统提示词 = 基础提示词 + 当前日期注入（agent 知道今天是哪年）
+    import time
+    today = time.strftime("%Y-%m-%d", time.localtime())
+    assert messages[0].content == build_system_prompt(today)
     assert messages[1].content == "hello"
 
 

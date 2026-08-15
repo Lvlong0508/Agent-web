@@ -15,6 +15,13 @@ SYSTEM_PROMPT = (
     "或工具调用失败时，才可如实说明无法查询；不得未经检查就声称没有工具。"
 )
 
+def build_system_prompt(today: str) -> str:
+    """把当前日期拼进系统提示词：agent 据此才知道"今天"是哪天，构造日期类
+    工具参数（如查"8月14日"账单）时才不会幻觉成往年（实测：agent 用 2023 年
+    查当月账单，查空还自信回复，质检也因"与工具结果一致"而放行错误结论）"""
+    return f"{SYSTEM_PROMPT}\n\n今天是 {today}。"
+
+
 # 标题生成提示词模板：{messages_text} 由 build_title_prompt 注入对话内容
 TITLE_GENERATION_TEMPLATE = (
     "根据以下对话内容，生成一个简短的对话标题（不超过20个字）：\n\n{messages_text}"

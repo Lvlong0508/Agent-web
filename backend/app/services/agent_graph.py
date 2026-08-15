@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Literal
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -48,6 +49,10 @@ class AgentState(MessagesState):
 
 # 回复不准确时的最大重写次数：验证->重写->再验证循环的上限，防止无限循环拖慢响应
 MAX_VERIFY_RETRIES = 2
+
+# 重写指令的 HumanMessage 标记名：用于在消息流中区分"本轮用户问题"与
+# "质检员修正指令"。两条都是 HumanMessage，不带标记就无法定位本轮用户问题
+REWRITE_INSTRUCTION_MARKER = "rewrite_instruction"
 
 
 class Verdict(BaseModel):
@@ -150,8 +155,50 @@ def _decide_verification(verdict: Verdict, state: AgentState) -> dict:
     }
 
 
+def _build_rewrite_messages(messages, feedback: str) -> list:
+    """构造重写轮发给 LLM 的消息列表（方案A，纯函数便于单测）。
+
+    实测 bug：重写轮直接把"完整历史 + 被否决的旧候选回复"喂给 LLM，模型看到
+    "这个问题已经回答过了"，最顺的路径是延续旧文本再补一句，而非重新调用工具。
+    修复：只保留 系统提示词 + 本轮用户问题 + 重写指令，剔除非本轮/被否决的
+    旧消息，迫使模型重新推理——系统提示词的铁律（每轮先调工具）才会生效。
+
+    例外：若最后一条是 ToolMessage（重写轮内 agent 已调过工具），必须保留
+    完整消息链（含工具结果），否则工具结果丢失、agent 无据可依。
+    """
+    # 重写轮内已执行工具：保留完整消息（含工具结果），只追加重写指令
+    if messages and isinstance(messages[-1], ToolMessage):
+        return [
+            *messages,
+            HumanMessage(content=build_rewrite_prompt(feedback), name=REWRITE_INSTRUCTION_MARKER),
+        ]
+    # 否则：只保留 系统提示词 + 本轮用户问题 + 重写指令
+    # 系统提示词是对话设定，保留；历史工具轮/重写轮/被否决候选一律丢弃
+    system_msgs = [m for m in messages if isinstance(m, SystemMessage)]
+    # 本轮用户问题：最后一条不带标记的 HumanMessage（带标记的是质检员修正指令）
+    user_question = next(
+        (
+            m
+            for m in reversed(messages)
+            if isinstance(m, HumanMessage) and getattr(m, "name", None) != REWRITE_INSTRUCTION_MARKER
+        ),
+        None,
+    )
+    rewrite_messages = list(system_msgs)
+    if user_question is not None:
+        rewrite_messages.append(user_question)
+    # 重写指令必须带标记：后续重写轮才能从消息流中识别出它，从而定位本轮用户问题
+    rewrite_messages.append(
+        HumanMessage(content=build_rewrite_prompt(feedback), name=REWRITE_INSTRUCTION_MARKER)
+    )
+    return rewrite_messages
+
+
 def _build_verdict_input(
-    messages, history_reference: list | None = None, available_tools: list | None = None
+    messages,
+    history_reference: list | None = None,
+    available_tools: list | None = None,
+    current_date: str | None = None,
 ) -> tuple[list, list[dict]]:
     """构造发给质检员的完整输入，返回（精简对话消息, 序列化输入）。
 
@@ -162,6 +209,9 @@ def _build_verdict_input(
     - 本轮数据：候选回复（最后一条无 tool_calls 的 assistant）+ 本轮工具结果。
     - 可用工具清单：available_tools 传入工具名列表，质检员据此判断"没有可用
       工具"的说法真伪（清单里有却说没有=说谎），杜绝助手谎称无工具逃避。
+    - 当前日期：current_date 传入今天日期（默认取系统当前时间），质检员据此
+      判断工具调用参数里的年份是否合理（实测 bug：agent 用 2023 年查询当月
+      账单导致查空，质检员因"与工具结果一致"放行了错误结论）。
 
     精简规则避免质检员被"互相矛盾的旧轮次/重写残稿"干扰（实测 bug：
     质检员判词里已认定"与tool一致、回复准确"，却返回 is_accurate=False）。
@@ -223,26 +273,57 @@ def _build_verdict_input(
             content=f"可用工具清单：{', '.join(available_tools)}"
         )
 
-    # 序列化完整输入（含前置 VERIFY_PROMPT），供全链路记录与日志
+    # 当前日期参考：作为参考信息注入质检输入（SystemMessage），质检员据此判断
+    # 工具参数里的年份是否合理（实测 agent 用 2023 年查询当月账单，若质检员
+    # 不知道当前是 2026 年，会误以为查询无误而放行错误结论）。测试可传固定值
+    if current_date is None:
+        current_date = time.strftime("%Y-%m-%d", time.localtime())
+    date_system = SystemMessage(content=f"当前日期：{current_date}")
+
+    # 工具调用参数映射：tool_call_id -> 调用参数。同一工具可能被多次调用且参数不同
+    # （如两次 list_expenses_by_date 查不同日期区间），序列化时带上参数才能看出
+    # 每条工具结果对应的查询条件，复盘才分得清"同一工具不同结果"的原因
+    tool_args_by_id: dict[str, dict] = {}
+    for m in dialogue_messages:
+        if isinstance(m, AIMessage):
+            for tc in m.tool_calls:
+                tool_args_by_id[tc["id"]] = tc.get("args")
+
+    # 序列化完整输入（含前置 VERIFY_PROMPT），供全链路记录与日志。
+    # tool 消息额外带 name（工具名）与 args（调用参数）：同一工具多次调用、
+    # 参数不同导致结果不同，补上这两项才能追溯每条结果由哪次调用产生。
+    # 前置参考消息顺序：VERIFY_PROMPT -> 当前日期 -> 可用工具清单
     serialized = [
         {"role": "system", "content": VERIFY_PROMPT},
     ]
+    serialized.append({"role": "system", "content": date_system.content})
     if tools_system is not None:
         serialized.append({"role": "system", "content": tools_system.content})
-    serialized.extend(
-        {
-            "role": getattr(m, "type", "unknown"),
-            "content": m.content,
-        }
-        for m in reduced
-    )
+    for m in reduced:
+        entry = {"role": getattr(m, "type", "unknown"), "content": m.content}
+        if isinstance(m, ToolMessage):
+            if m.name:
+                entry["name"] = m.name
+            args = tool_args_by_id.get(m.tool_call_id)
+            if args is not None:
+                entry["args"] = args
+        serialized.append(entry)
+    # 精简消息前置参考 SystemMessage（与序列化顺序保持一致）
+    reduced = [date_system]
     if tools_system is not None:
-        reduced = [tools_system, *reduced]
+        reduced.append(tools_system)
+    reduced.extend([*reference, *current_tools])
+    if candidate is not None:
+        reduced.append(candidate)
     return reduced, serialized
 
 
 async def _run_verdict(
-    llm, messages, history_reference: list | None = None, available_tools: list | None = None
+    llm,
+    messages,
+    history_reference: list | None = None,
+    available_tools: list | None = None,
+    current_date: str | None = None,
 ) -> Verdict:
     """调用结构化输出 LLM，基于"参考历史 + 本轮数据"得到验证结论。
 
@@ -250,10 +331,12 @@ async def _run_verdict(
     基于记忆的回复；本轮数据只取候选回复与工具结果，丢弃其他历史，避免
     质检员被互相矛盾的多轮回复干扰（实测 bug：质检员判词里已认定"与tool一致、
     回复准确"，却返回 is_accurate=False）。可用工具清单帮助质检员判断"无工具"
-    说法真伪。
+    说法真伪；当前日期供质检员识别工具参数年份明显错误的问题。
     """
     structured = llm.with_structured_output(Verdict)
-    reduced, serialized = _build_verdict_input(messages, history_reference, available_tools)
+    reduced, serialized = _build_verdict_input(
+        messages, history_reference, available_tools, current_date
+    )
     # 诊断日志：确认发给质检员的消息序列（SystemMessage 已过滤、旧轮次已丢弃）
     logger.info(
         "verifier 输入消息类型: %s",
@@ -373,11 +456,11 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
             # 把验证反馈注入重写指令，agent 据此重新组织语言直接作答。
             # 指令刻意不写"你上一条未通过校验"这类过程性说明：写了会让 agent
             # 在回复里道歉解释（实测出现"非常抱歉，刚才的回复确实出现了严重的
-            # 错误"），而重写结果是要展示给用户的最终版，话术必须自然衔接
-            messages = [
-                *messages,
-                HumanMessage(content=build_rewrite_prompt(feedback)),
-            ]
+            # 错误"），而重写结果是要展示给用户的最终版，话术必须自然衔接。
+            # 重写轮消息必须剔除被否决的旧候选回复（只留 系统提示词 + 本轮用户
+            # 问题 + 重写指令）：否则模型看到旧答案会延续文本而不重新调用工具
+            # （实测 bug：质检纠正后助手依然不肯调工具，连续输出同样的错误结论）
+            messages = _build_rewrite_messages(messages, feedback)
         response = await llm.ainvoke(messages)
         return {"messages": [response]}
 

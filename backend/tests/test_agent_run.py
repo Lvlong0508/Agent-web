@@ -315,5 +315,7 @@ async def test_chat_stream_records_verifier_verdict_in_trace():
         assert len(inputs) == 1
         assert inputs[0]["content"][0]["role"] == "system"
         assert inputs[0]["content"][1]["content"] == "我这个月花了多少钱？"
+        # 时间线一致：先记录发给质检员的输入（input_verdict），再记录判定结果（verdict）
+        assert run.messages.index(inputs[0]) < run.messages.index(verdicts[0])
     finally:
         current_user_id.reset(token)

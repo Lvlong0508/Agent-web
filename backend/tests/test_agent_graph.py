@@ -13,12 +13,14 @@ from app.services.agent_graph import (
     _generate_title_if_empty,
     _run_verdict,
     _build_verdict_input,
+    _build_rewrite_messages,
     route_after_verify,
     MAX_VERIFY_RETRIES,
     Verdict,
     _decide_verification,
 )
 from app.services.prompts import SYSTEM_PROMPT, VERIFY_PROMPT, build_rewrite_prompt
+from app.services.agent_graph import REWRITE_INSTRUCTION_MARKER
 
 
 @pytest.fixture
@@ -475,8 +477,11 @@ async def test_run_verdict_injects_verify_prompt_and_calls_structured_llm():
     call_messages = structured.ainvoke.call_args.args[0]
     assert call_messages[0].type == "system"
     assert VERIFY_PROMPT in call_messages[0].content
-    # 原始对话消息保持在提示词之后
-    assert call_messages[1] == messages[0]
+    # 当前日期参考 SystemMessage 紧随其后
+    assert call_messages[1].type == "system"
+    assert "当前日期" in call_messages[1].content
+    # 原始对话消息保持在提示词与日期参考之后
+    assert call_messages[2] == messages[0]
 
 
 @pytest.mark.asyncio
@@ -499,12 +504,13 @@ async def test_run_verdict_filters_system_role_message():
 
     assert result.is_accurate is True
     call_messages = structured.ainvoke.call_args.args[0]
-    # 除 VERIFY_PROMPT 外不再有第二条 SystemMessage（角色设定被过滤）
+    # 除 VERIFY_PROMPT 与当前日期参考外，不再有第三条 SystemMessage（角色设定被过滤）
     system_msgs = [m for m in call_messages if isinstance(m, SystemMessage)]
-    assert len(system_msgs) == 1
+    assert len(system_msgs) == 2
     assert system_msgs[0].content == VERIFY_PROMPT
-    # 对话消息完整保留且顺序不变
-    assert [type(m) for m in call_messages[1:]] == [HumanMessage, AIMessage]
+    assert "当前日期" in system_msgs[1].content
+    # 对话消息完整保留且顺序不变（角色设定被过滤后只留 human/assistant）
+    assert [type(m) for m in call_messages[2:]] == [HumanMessage, AIMessage]
 
 
 @pytest.mark.asyncio
@@ -536,8 +542,8 @@ async def test_run_verdict_filters_stale_rounds_keeps_candidate_and_tool():
     await _run_verdict(mock_llm, messages)
 
     call_messages = structured.ainvoke.call_args.args[0]
-    # 前置 VERIFY_PROMPT 后，其余消息应只剩：用户 + 工具结果 + 候选回复
-    remaining = call_messages[1:]
+    # 前置 VERIFY_PROMPT 后，其余消息应只剩：当前日期参考 + 用户 + 工具结果 + 候选回复
+    remaining = [m for m in call_messages[1:] if not isinstance(m, SystemMessage)]
     # 丢弃了首轮幻觉回复与带工具调用的中间轮
     assert [type(m) for m in remaining] == [HumanMessage, ToolMessage, AIMessage]
     # 候选回复必须是最后一条无工具调用的 assistant（70 元那条）
@@ -583,16 +589,21 @@ def test_build_verdict_input_serializes_payload():
     ]
     reduced, serialized = _build_verdict_input(messages)
 
-    # 精简消息保留三类
-    assert [type(m) for m in reduced] == [HumanMessage, ToolMessage, AIMessage]
-    # 序列化：首条是质检提示词
+    # 精简消息：前置当前日期参考 SystemMessage，随后是 human/tool/ai
+    assert [type(m) for m in reduced] == [SystemMessage, HumanMessage, ToolMessage, AIMessage]
+    # 当前日期参考在最前
+    assert reduced[0].type == "system"
+    assert "当前日期" in reduced[0].content
+    # 序列化：首条是质检提示词，第二条是当前日期参考
     assert serialized[0]["role"] == "system"
     assert serialized[0]["content"] == VERIFY_PROMPT
+    assert serialized[1]["role"] == "system"
+    assert "当前日期" in serialized[1]["content"]
     # 后续按 role/content 记录
-    assert [m["role"] for m in serialized[1:]] == ["human", "tool", "ai"]
-    assert serialized[1]["content"] == "我这个月花了多少钱？"
-    assert serialized[2]["content"] == "{\"total\": 2}"
-    assert serialized[3]["content"] == "这个月花了 70 元"
+    assert [m["role"] for m in serialized[2:]] == ["human", "tool", "ai"]
+    assert serialized[2]["content"] == "我这个月花了多少钱？"
+    assert serialized[3]["content"] == "{\"total\": 2}"
+    assert serialized[4]["content"] == "这个月花了 70 元"
 
 
 def test_build_verdict_input_keeps_only_current_round_tool_result():
@@ -608,14 +619,64 @@ def test_build_verdict_input_keeps_only_current_round_tool_result():
     ]
     reduced, serialized = _build_verdict_input(messages)
 
-    # 只保留本轮用户问题 + 本轮工具结果 + 候选回复
-    assert [type(m) for m in reduced] == [HumanMessage, ToolMessage, AIMessage]
-    assert reduced[0].content == "本轮问题：查8月账单"
-    assert reduced[1].content == "{\"total\": 2}"
-    assert reduced[2].content == "本轮回答：8月有2笔"
+    # 只保留当前日期参考 + 本轮用户问题 + 本轮工具结果 + 候选回复
+    assert [type(m) for m in reduced] == [SystemMessage, HumanMessage, ToolMessage, AIMessage]
+    assert reduced[1].content == "本轮问题：查8月账单"
+    assert reduced[2].content == "{\"total\": 2}"
+    assert reduced[3].content == "本轮回答：8月有2笔"
     # 序列化输入不包含历史轮次的工具结果
     tool_contents = [m["content"] for m in serialized if m["role"] == "tool"]
     assert tool_contents == ["{\"total\": 2}"]
+
+
+def test_build_verdict_input_serializes_tool_name_and_args():
+    """序列化输入中的 tool 消息应带 name（工具名）与 args（调用参数）：
+    同一工具可能被多次调用且参数不同（如查不同日期区间），复盘时靠这两项
+    才能看出每条工具结果由哪次调用产生"""
+    messages = [
+        HumanMessage(content="我这个月花了多少钱？"),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "id": "call_1",
+                    "name": "list_expenses_by_date",
+                    "args": {"start_date": "2026-08-01", "end_date": "2026-08-15"},
+                },
+                {
+                    "id": "call_2",
+                    "name": "list_expenses_by_date",
+                    "args": {"start_date": "2026-08-15", "end_date": "2026-08-31"},
+                },
+            ],
+        ),
+        ToolMessage(
+            content='{"total": 6}',
+            name="list_expenses_by_date",
+            tool_call_id="call_1",
+        ),
+        ToolMessage(
+            content='{"total": 0}',
+            name="list_expenses_by_date",
+            tool_call_id="call_2",
+        ),
+        AIMessage(content="这个月花了 70 元"),
+    ]
+    reduced, serialized = _build_verdict_input(messages)
+
+    # 序列化输入里按 role/content 记录，tool 消息额外带 name 与 args
+    tools = [m for m in serialized if m["role"] == "tool"]
+    assert len(tools) == 2
+    assert tools[0]["name"] == "list_expenses_by_date"
+    assert tools[0]["args"] == {
+        "start_date": "2026-08-01",
+        "end_date": "2026-08-15",
+    }
+    assert tools[1]["name"] == "list_expenses_by_date"
+    assert tools[1]["args"] == {
+        "start_date": "2026-08-15",
+        "end_date": "2026-08-31",
+    }
 
 
 def test_build_verdict_input_includes_history_reference():
@@ -684,6 +745,30 @@ async def test_run_verdict_passes_available_tools_to_verifier():
     # 可用工具清单随消息注入（在 VERIFY_PROMPT 之后）
     injected = [m.content for m in call_messages[1:]]
     assert any("list_expenses_by_date" in c for c in injected)
+
+
+@pytest.mark.asyncio
+async def test_run_verdict_passes_current_date_to_verifier():
+    """_run_verdict 把当前日期注入质检输入：质检员据此判断工具调用参数里的
+    年份是否合理（实测 bug：agent 用 2023 年查询当月账单导致查空，若质检员
+    不知道当前是 2026 年，会误认为查询无误而放行错误结论）"""
+    mock_llm = MagicMock()
+    structured = MagicMock()
+    structured.ainvoke = AsyncMock(return_value=Verdict(is_accurate=True, issues=""))
+    mock_llm.with_structured_output.return_value = structured
+
+    messages = [
+        HumanMessage(content="8月14日餐饮花了多少？"),
+        AIMessage(content="8月14日没有任何支出"),
+    ]
+    await _run_verdict(mock_llm, messages, current_date="2026-08-15")
+
+    call_messages = structured.ainvoke.call_args.args[0]
+    # 当前日期作为参考 SystemMessage 注入（紧随 VERIFY_PROMPT 之后）
+    system_msgs = [m for m in call_messages if isinstance(m, SystemMessage)]
+    assert len(system_msgs) == 2
+    assert system_msgs[0].content == VERIFY_PROMPT
+    assert "当前日期：2026-08-15" in system_msgs[1].content
 
 
 def test_agent_state_declares_verification_result():
@@ -865,3 +950,105 @@ async def test_verifier_fail_when_retries_exhausted():
     results = [u["verifier"]["verification_result"] for u in updates if "verifier" in u]
     # 首次 + 重写1 + 重写2 共三次验证，前两次 retry 最后一次 fail
     assert results == ["retry", "retry", "fail"]
+
+
+class RecordingFakeChatModel(GenericFakeChatModel):
+    """记录每次调用 LLM 时收到的消息列表，用于断言重写轮输入内容
+    （GenericFakeChatModel 是 pydantic 模型，普通属性赋值会被拦截，故用 object.__setattr__）"""
+
+    def __init__(self, messages):
+        super().__init__(messages=iter(messages))
+        object.__setattr__(self, "calls", [])
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        self.calls.append(messages)
+        return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+
+def test_build_rewrite_messages_strips_rejected_candidate():
+    """方案A：重写轮构造消息必须剔除被否决的旧候选回复（无工具调用的 AIMessage），
+    只保留 系统提示词 + 本轮用户问题 + 重写指令。
+    否则模型看到旧答案会延续文本而不重新调用工具（实测 bug：质检纠正后仍不调工具）"""
+    messages = [
+        SystemMessage(content=SYSTEM_PROMPT),
+        HumanMessage(content="我今天吃了8000块饭，对不？"),
+        AIMessage(content="今天没有任何餐饮账单"),  # 被否决的旧候选
+    ]
+    result = _build_rewrite_messages(messages, "金额错误")
+
+    contents = [m.content for m in result]
+    assert "今天没有任何餐饮账单" not in contents  # 旧候选被剔除
+    assert len(result) == 3
+    assert result[0].type == "system"  # 保留系统提示词
+    assert result[1].content == "我今天吃了8000块饭，对不？"  # 保留本轮用户问题
+    assert result[2].type == "human"
+    assert "金额错误" in result[2].content  # 重写指令携带修正意见
+    assert result[2].name == REWRITE_INSTRUCTION_MARKER  # 重写指令带标记，便于识别
+
+
+def test_build_rewrite_messages_keeps_tool_result_round():
+    """重写轮已执行工具（末条是 ToolMessage）：保留完整消息（含工具结果）
+    只追加重写指令，避免丢失工具结果导致 agent 无据可依"""
+    messages = [
+        SystemMessage(content=SYSTEM_PROMPT),
+        HumanMessage(content="我今天吃了8000块饭，对不？"),
+        AIMessage(
+            content="让我查一下",
+            tool_calls=[{"name": "list_expenses", "args": {}, "id": "1", "type": "tool_call"}],
+        ),
+        ToolMessage(content='{"total": 0}', name="list_expenses", tool_call_id="1"),
+    ]
+    result = _build_rewrite_messages(messages, "金额错误")
+
+    # 完整消息保留，工具结果不得丢失，仅末尾追加重写指令
+    assert result[-2] is messages[-1]
+    assert isinstance(result[-2], ToolMessage)
+    assert isinstance(result[-1], HumanMessage)
+    assert result[-1].name == REWRITE_INSTRUCTION_MARKER
+    assert "金额错误" in result[-1].content
+
+
+@pytest.mark.asyncio
+async def test_rewrite_round_input_excludes_rejected_candidate():
+    """集成：重写轮发给 LLM 的消息不得包含被否决的首轮候选回复，
+    只含 系统提示词 + 本轮用户问题 + 重写指令"""
+    conv = MagicMock()
+    conv.title = "已有标题"
+    conv_repo = MagicMock()
+    conv_repo.get_by_id = AsyncMock(return_value=conv)
+    conv_repo.update_title = AsyncMock(return_value=None)
+
+    # 首轮流式拿 first_llm 产出"首次回复"；重写轮非流式拿 rewrite_llm 并记录输入
+    first_llm = GenericFakeChatModel(messages=iter([AIMessage(content="首次回复")]))
+    rewrite_llm = RecordingFakeChatModel([AIMessage(content="重写回复")])
+
+    def fake_create_llm(streaming=True, model="", enable_thinking=True, max_tokens=None):
+        return first_llm if streaming else rewrite_llm
+
+    # 第一次验证判不准（触发重写），重写后判准确（走 pass，只重写一轮）
+    calls = {"n": 0}
+
+    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return Verdict(is_accurate=False, issues="金额错误")
+        return Verdict(is_accurate=True, issues="")
+
+    graph = build_agent_graph(conv_repo)
+    with (
+        patch("app.services.agent_graph._run_verdict", side_effect=fake_run_verdict),
+        patch("app.services.agent_graph.create_llm", side_effect=fake_create_llm),
+    ):
+        async for mode, data in graph.astream(
+            {"messages": [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content="我今天吃了8000块饭，对不？")],
+             "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
+            stream_mode=["messages", "updates"],
+        ):
+            pass
+
+    assert rewrite_llm.calls, "重写轮应调用 LLM"
+    rewrite_input = rewrite_llm.calls[0]
+    contents = [m.content for m in rewrite_input]
+    assert "首次回复" not in contents  # 被否决的首轮候选不得出现在重写轮输入中
+    assert "我今天吃了8000块饭，对不？" in contents  # 本轮用户问题保留
+    assert any("金额错误" in c for c in contents)  # 重写指令携带修正意见

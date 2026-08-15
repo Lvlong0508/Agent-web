@@ -1,4 +1,5 @@
 import json
+import time
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -10,7 +11,7 @@ from app.models.message import Message
 from app.models.agent_run import AgentRun
 from app.repositories.agent_run_repo import AgentRunRepo
 from app.services.agent_graph import build_agent_graph
-from app.services.prompts import REPLY_ON_VERIFY_FAILED, SYSTEM_PROMPT
+from app.services.prompts import REPLY_ON_VERIFY_FAILED, build_system_prompt
 from app.tools import get_tools
 
 
@@ -139,8 +140,11 @@ class ChatService:
         # 3. 拉取历史消息（含刚保存的用户消息），转为 LangChain 消息
         history = await self.msg_repo.list_by_conversation(conv_id)
         # 上下文窗口：系统提示词只在这里注入一次、排在最前；
-        # 历史消息只存 user/assistant 角色，因此不会重复添加
-        langchain_messages = [SystemMessage(content=SYSTEM_PROMPT)]
+        # 历史消息只存 user/assistant 角色，因此不会重复添加。
+        # 注入当前日期：agent 构造日期类工具参数（如"8月14日"账单）时才知道
+        # 今天是哪年，不会幻觉成往年（实测用 2023 年查询当月账单致查空）
+        today = time.strftime("%Y-%m-%d", time.localtime())
+        langchain_messages = [SystemMessage(content=build_system_prompt(today))]
         for m in history:
             if m.role == "user":
                 langchain_messages.append(HumanMessage(content=m.content))
@@ -218,19 +222,20 @@ class ChatService:
                     # 验证节点结果：retry → 通知前端进入重写并清空待定回复；
                     # pass → 推送最终版；fail → 超限返回固定文案（不再循环）
                     result = data.get("verifier", {}).get("verification_result")
-                    # 记录质检员结构化判定到全链路（role=verdict，content 为 Verdict 字典）。
-                    # 至此 trace 完整覆盖：用户提问、agent 各轮回复、工具结果、质检判定
-                    verifier_verdict = data.get("verifier", {}).get("verdict")
-                    if verifier_verdict is not None:
-                        trace_messages.append(
-                            {"role": "verdict", "content": verifier_verdict}
-                        )
                     # 记录发给质检员的完整输入（role=input_verdict）：含 VERIFY_PROMPT
-                    # 与精简后的消息序列，便于事后评估质检效果（看它到底基于什么判定）
+                    # 与精简后的消息序列，便于事后评估质检效果（看它到底基于什么判定）。
+                    # 注意顺序：先记输入、再记判定，保持"输入 -> 结果"的时间线一致
                     verifier_input = data.get("verifier", {}).get("verdict_input")
                     if verifier_input is not None:
                         trace_messages.append(
                             {"role": "input_verdict", "content": verifier_input}
+                        )
+                    # 记录质检员结构化判定到全链路（role=verdict，content 为 Verdict 字典）。
+                    # 至此 trace 完整覆盖：用户提问、agent 各轮回复、工具结果、质检输入、质检判定
+                    verifier_verdict = data.get("verifier", {}).get("verdict")
+                    if verifier_verdict is not None:
+                        trace_messages.append(
+                            {"role": "verdict", "content": verifier_verdict}
                         )
                     if result == "retry":
                         # 需重写：清空当前累积，重写轮会产出全新完整回复（不能拼接）

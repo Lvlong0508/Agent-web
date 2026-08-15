@@ -6,8 +6,20 @@ from app.services.prompts import (
     TITLE_GENERATION_TEMPLATE,
     VERIFY_PROMPT,
     build_rewrite_prompt,
+    build_system_prompt,
     build_title_prompt,
 )
+
+
+def test_build_system_prompt_injects_today():
+    """系统提示词必须拼接当前日期：agent 构造日期类工具参数（如"8月14日"账单）
+    时需要知道今天是哪年，否则会幻觉成往年（实测用 2023 年查询当月账单）"""
+    prompt = build_system_prompt("2026-08-15")
+    # 基础系统提示词完整保留
+    assert SYSTEM_PROMPT in prompt
+    # 当前日期注入其中
+    assert "2026-08-15" in prompt
+    assert "今天" in prompt
 
 
 def test_build_title_prompt_injects_messages():
