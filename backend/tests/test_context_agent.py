@@ -74,3 +74,24 @@ def test_build_agent_messages_no_current_returns_no_final_human():
     assert result[1].name == HISTORY_REFERENCE_MARKER
     assert "<user>你好</user>" in result[1].content
     assert "<assistant>回复</assistant>" in result[1].content
+
+
+def test_build_agent_messages_single_current_message():
+    """新对话首条消息（历史只有本轮 user）：无参考块，仅系统提示词 + 本轮问题"""
+    result = build_agent_messages([FakeMessage(role="user", content="你好")], "2026-08-15")
+    assert len(result) == 2
+    assert isinstance(result[0], SystemMessage)
+    assert result[1].content == "你好"
+    assert result[1].name is None
+
+
+def test_build_agent_messages_exact_window_boundary():
+    """历史恰好等于窗口边界（10 条 + 本轮）：全部历史保留，不丢首条"""
+    history = [FakeMessage(role="user", content=f"第{i}条") for i in range(10)]
+    history.append(FakeMessage(role="user", content="本轮问题"))
+    result = build_agent_messages(history, "2026-08-15")
+
+    ref_block = result[1]
+    assert ref_block.content.count("<user>") == HISTORY_WINDOW_SIZE
+    assert "第0条" in ref_block.content  # 边界时首条也保留
+    assert result[-1].content == "本轮问题"
