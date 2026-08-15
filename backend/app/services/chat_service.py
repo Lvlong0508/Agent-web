@@ -1,7 +1,9 @@
 import json
 import time
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+# AIMessage/ToolMessage 仍被 _langchain_msg_to_trace 使用（全链路记录）；
+# SystemMessage/HumanMessage 仅原内联首轮上下文构造用，已抽到 context 包
+from langchain_core.messages import AIMessage, ToolMessage
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.auth import get_current_user_id_or_raise
@@ -11,7 +13,9 @@ from app.models.message import Message
 from app.models.agent_run import AgentRun
 from app.repositories.agent_run_repo import AgentRunRepo
 from app.services.agent.agent_graph import build_agent_graph
-from app.services.agent.prompts import REPLY_ON_VERIFY_FAILED, build_system_prompt
+# 首轮上下文组装已抽到 context/agent（纯函数，可独立单测）
+from app.services.agent.context.agent import build_agent_messages
+from app.services.agent.prompts import REPLY_ON_VERIFY_FAILED
 from app.tools import get_tools
 
 
@@ -137,19 +141,14 @@ class ChatService:
         user_msg = Message(conversation_id=conv_id, role="user", content=content)
         await self.msg_repo.create(user_msg)
 
-        # 3. 拉取历史消息（含刚保存的用户消息），转为 LangChain 消息
+        # 3. 拉取历史消息（含刚保存的用户消息），交给 context 模块组装首轮上下文
         history = await self.msg_repo.list_by_conversation(conv_id)
-        # 上下文窗口：系统提示词只在这里注入一次、排在最前；
-        # 历史消息只存 user/assistant 角色，因此不会重复添加。
         # 注入当前日期：agent 构造日期类工具参数（如"8月14日"账单）时才知道
         # 今天是哪年，不会幻觉成往年（实测用 2023 年查询当月账单致查空）
         today = time.strftime("%Y-%m-%d", time.localtime())
-        langchain_messages = [SystemMessage(content=build_system_prompt(today))]
-        for m in history:
-            if m.role == "user":
-                langchain_messages.append(HumanMessage(content=m.content))
-            elif m.role == "assistant":
-                langchain_messages.append(AIMessage(content=m.content))
+        # 首轮上下文组装已抽到 context 包（纯函数，可独立单测）：
+        # 系统提示词前置（含日期）+ 历史消息按序转换
+        langchain_messages = build_agent_messages(history, today)
 
         # 4. 运行 agent 图，同时监听两种流模式：
         #    - "messages"：逐块产出 LLM token（打字机效果的来源）
