@@ -6,7 +6,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from app.services.agent.context.agent import HISTORY_REFERENCE_MARKER
-from app.services.agent.context.verdict import (
+from app.services.agent.capabilities.verifier.context.verdict import (
     Verdict,
     build_verdict_input,
     run_verdict,
