@@ -1,6 +1,6 @@
 """首轮上下文组装测试：系统提示词前置（含日期）+ 历史折叠为参考块 + 本轮问题独立"""
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.services.agent.context.agent import (
     HISTORY_REFERENCE_MARKER,
