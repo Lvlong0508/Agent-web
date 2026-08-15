@@ -7,10 +7,11 @@ from typing import Literal
 
 from app.config.settings import settings
 from app.services.agent.capabilities.core_agent.llm import create_llm
+from app.services.agent.capabilities.core_agent.state import AgentState
 from app.services.agent.context.rewrite import build_rewrite_messages
 
 
-def should_continue(state) -> Literal["tools", "verifier"]:
+def should_continue(state: AgentState) -> Literal["tools", "verifier"]:
     """条件边：最后一条消息含工具调用则进 tools 节点，否则进 verifier 验证"""
     last_message = state["messages"][-1]
     if last_message.tool_calls:
@@ -18,11 +19,9 @@ def should_continue(state) -> Literal["tools", "verifier"]:
     return "verifier"
 
 
-def make_agent_node(conv_repo, tools):
+def make_agent_node(tools):
     """构造 agent 推理节点：把消息流（已含系统提示词）交给 LLM 生成回复。
 
-    conv_repo：对话仓库（供需要查询上下文的能力使用；当前 agent 节点不直接用，
-    但保留签名兼容，后续能力可能引用）
     tools：绑定给 LLM 的工具列表
     """
 

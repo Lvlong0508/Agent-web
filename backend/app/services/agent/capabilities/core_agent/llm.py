@@ -1,13 +1,8 @@
 """create_llm：按模型选择名创建对应 LLM（本地 Ollama 或通义千问 DashScope）"""
 
-import logging
-
 from langchain_openai import ChatOpenAI
 
 from app.config.settings import settings
-
-# 模块级日志器：供节点异常降级等场景记录可诊断信息，便于线上排查
-logger = logging.getLogger(__name__)
 
 
 def create_llm(

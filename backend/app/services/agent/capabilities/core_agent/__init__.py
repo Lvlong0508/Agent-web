@@ -1,16 +1,14 @@
 """core_agent 能力：主循环核心锚点（agent/tools/verifier 的宿主），必需能力"""
 
-from langgraph.graph import StateGraph
+from langgraph.graph import START, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from app.services.agent.capabilities.core_agent.llm import create_llm
 from app.services.agent.capabilities.core_agent.node import make_agent_node, should_continue
 from app.services.agent.capabilities.core_agent.node_names import (
     CORE_NODE_AGENT,
     CORE_NODE_TOOLS,
     CORE_NODE_VERIFIER,
 )
-from app.services.agent.capabilities.core_agent.state import AgentState
 from app.services.agent.capability import AgentCapability
 
 
@@ -45,11 +43,15 @@ class CoreAgentCapability(AgentCapability):
         }
 
     def register_nodes(self, builder: StateGraph) -> list[str]:
-        builder.add_node(CORE_NODE_AGENT, make_agent_node(self._conv_repo, self._tools))
+        builder.add_node(CORE_NODE_AGENT, make_agent_node(self._tools))
         builder.add_node(CORE_NODE_TOOLS, ToolNode(self._tools))
         return [CORE_NODE_AGENT, CORE_NODE_TOOLS]
 
     def connect(self, builder: StateGraph) -> None:
+        # 主循环入口：agent 推理节点是回复主路径的起点，必须从 START 进入。
+        # （原单体图中 START→agent 并行边，拆分后由 core_agent 认领；
+        #   title 能力认领 START→generate_title 旁路边）
+        builder.add_edge(START, CORE_NODE_AGENT)
         # 工具执行完必须回到 agent 再跑一轮：agent 拿到工具结果后生成最终回复。
         # 若不连这条边，图在 tools 节点后直接结束，最终回复永远不会产出，
         # 且工具调用轮次里 LLM 输出的中间说明文字会被误收集成回复
