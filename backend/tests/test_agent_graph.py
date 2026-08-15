@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END
 
 from app.config.settings import settings
@@ -16,7 +16,7 @@ from app.services.agent.agent_graph import (
     Verdict,
     _decide_verification,
 )
-from app.services.agent.prompts import SYSTEM_PROMPT, VERIFY_PROMPT
+from app.services.agent.prompts import SYSTEM_PROMPT
 
 
 @pytest.fixture
@@ -92,7 +92,7 @@ async def test_astream_runs_full_graph_with_title_and_tokens():
 
     graph = build_agent_graph(conv_repo)
     full_text = ""
-    # verifier 节点真实调用 _run_verdict 需要结构化输出，fake LLM 不支持，
+    # verifier 节点真实调用 run_verdict 需要结构化输出，fake LLM 不支持，
     # 这里 patch 成直接返回"准确"的 Verdict，让验证链路走 pass 正常结束
     async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
         return Verdict(is_accurate=True, issues="")
@@ -152,7 +152,7 @@ async def test_title_failure_does_not_block_chat():
 
     graph = build_agent_graph(conv_repo)
     full_text = ""
-    # verifier 节点真实调用 _run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
+    # verifier 节点真实调用 run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
     async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
         return Verdict(is_accurate=True, issues="")
 
@@ -197,7 +197,7 @@ async def test_generate_title_node_exposes_title_in_updates():
 
     graph = build_agent_graph(conv_repo)
     updates = []
-    # verifier 节点真实调用 _run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
+    # verifier 节点真实调用 run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
     async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
         return Verdict(is_accurate=True, issues="")
 
@@ -300,7 +300,7 @@ async def test_agent_node_thinking_switch():
         return title_llm if not streaming else agent_llm
 
     graph = build_agent_graph(conv_repo)
-    # verifier 节点真实调用 _run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
+    # verifier 节点真实调用 run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
     async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
         return Verdict(is_accurate=True, issues="")
 
@@ -346,7 +346,7 @@ async def test_agent_node_thinking_defaults_off():
         return agent_llm
 
     graph = build_agent_graph(conv_repo)
-    # verifier 节点真实调用 _run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
+    # verifier 节点真实调用 run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
     async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
         return Verdict(is_accurate=True, issues="")
 
@@ -391,7 +391,7 @@ async def test_astream_defaults_to_ollama_without_model():
         return agent_llm
 
     graph = build_agent_graph(conv_repo)
-    # verifier 节点真实调用 _run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
+    # verifier 节点真实调用 run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
     async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
         return Verdict(is_accurate=True, issues="")
 

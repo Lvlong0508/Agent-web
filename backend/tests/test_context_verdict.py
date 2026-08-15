@@ -15,7 +15,7 @@ from app.services.agent.prompts import SYSTEM_PROMPT, VERIFY_PROMPT
 
 @pytest.mark.asyncio
 async def test_run_verdict_injects_verify_prompt_and_calls_structured_llm():
-    """_run_verdict 注入验证提示词并调用结构化输出"""
+    """run_verdict 注入验证提示词并调用结构化输出"""
     mock_llm = MagicMock()
     structured = MagicMock()
     structured.ainvoke = AsyncMock(return_value=Verdict(is_accurate=True, issues=""))
@@ -38,7 +38,7 @@ async def test_run_verdict_injects_verify_prompt_and_calls_structured_llm():
 
 @pytest.mark.asyncio
 async def test_run_verdict_filters_system_role_message():
-    """_run_verdict 必须过滤掉角色设定 SystemMessage（如 SYSTEM_PROMPT"你是小励"），
+    """run_verdict 必须过滤掉角色设定 SystemMessage（如 SYSTEM_PROMPT"你是小励"），
     只保留 user/assistant/tool 对话消息交给质检员；否则两条 SystemMessage 连排
     会让模型把角色设定当成对话参与者，导致校验对象搞错（用户实测 bug）"""
     mock_llm = MagicMock()
@@ -67,7 +67,7 @@ async def test_run_verdict_filters_system_role_message():
 
 @pytest.mark.asyncio
 async def test_run_verdict_filters_stale_rounds_keeps_candidate_and_tool():
-    """_run_verdict 必须丢弃历史中已判错/重写的旧回复与带工具调用的中间轮，
+    """run_verdict 必须丢弃历史中已判错/重写的旧回复与带工具调用的中间轮，
     只保留：用户消息 + 工具结果 + 最后一条无工具调用的候选回复。
     否则质检员会看到互相矛盾的多轮回复（如首轮幻觉 320 元、重写轮 70 元），
     被历史干扰而误判正确回复不准确（用户实测 bug）"""
@@ -131,7 +131,7 @@ async def test_run_verdict_keeps_only_current_round_user_message():
 
 
 def test_build_verdict_input_serializes_payload():
-    """_build_verdict_input 返回（精简消息, 序列化输入）；序列化输入首条为
+    """build_verdict_input 返回（精简消息, 序列化输入）；序列化输入首条为
     VERIFY_PROMPT 的 system 消息，其余按 role/content 记录，供全链路
     role=input_verdict 使用"""
     messages = [
@@ -279,7 +279,7 @@ def test_build_verdict_input_includes_available_tools():
 
 @pytest.mark.asyncio
 async def test_run_verdict_passes_available_tools_to_verifier():
-    """_run_verdict 把可用工具清单注入质检输入：质检员据此判断"无工具"说法真伪。
+    """run_verdict 把可用工具清单注入质检输入：质检员据此判断"无工具"说法真伪。
     用户问天气（工具列表无天气工具）助手说无工具 -> 允许；用户问账单（列表有
     账单工具）助手说无工具 -> 判不准确。工具清单是判定真伪的事实依据"""
     mock_llm = MagicMock()
@@ -301,7 +301,7 @@ async def test_run_verdict_passes_available_tools_to_verifier():
 
 @pytest.mark.asyncio
 async def test_run_verdict_passes_current_date_to_verifier():
-    """_run_verdict 把当前日期注入质检输入：质检员据此判断工具调用参数里的
+    """run_verdict 把当前日期注入质检输入：质检员据此判断工具调用参数里的
     年份是否合理（实测 bug：agent 用 2023 年查询当月账单导致查空，若质检员
     不知道当前是 2026 年，会误认为查询无误而放行错误结论）"""
     mock_llm = MagicMock()
