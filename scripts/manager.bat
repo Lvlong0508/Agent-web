@@ -91,15 +91,14 @@ if "!RUNNING!"=="1" (
     echo [后端] 已经在运行中
     goto :eof
 )
-call :kill_window "Backend"
 echo [后端] 正在启动...
-start "Backend" /D "%BACKEND_DIR%" cmd /c "conda activate agent-web && uvicorn app.main:app --reload --host 0.0.0.0 --port %BACKEND_PORT%"
+start "Backend" /D "%BACKEND_DIR%" cmd /c "call conda activate agent-web && uvicorn app.main:app --reload --host 0.0.0.0 --port %BACKEND_PORT%"
 echo [后端] 已启动
 goto :eof
 
 :stop_backend
-call :kill_window "Backend"
-call :kill_port %BACKEND_PORT%
+echo 正在停止后端...
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*uvicorn*app.main:app*' } | ForEach-Object { taskkill /f /t /pid $_.ProcessId 2>$null }"
 timeout /t 1 /nobreak >nul
 call :check_port %BACKEND_PORT%
 if "!RUNNING!"=="1" (
@@ -115,16 +114,14 @@ if "!RUNNING!"=="1" (
     echo [前端] 已经在运行中
     goto :eof
 )
-call :kill_window "Frontend"
 echo [前端] 正在启动...
 start "Frontend" /D "%FRONTEND_DIR%" cmd /c "npm run dev -- --host 0.0.0.0 --port %FRONTEND_PORT% --strictPort"
 echo [前端] 已启动
 goto :eof
 
 :stop_frontend
-call :kill_window "Frontend"
-call :kill_port %FRONTEND_PORT%
-call :kill_npm_vite
+echo 正在停止前端...
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*npm run dev*' -or $_.CommandLine -like '*vite*' } | ForEach-Object { taskkill /f /t /pid $_.ProcessId 2>$null }"
 timeout /t 1 /nobreak >nul
 call :check_port %FRONTEND_PORT%
 if "!RUNNING!"=="1" (
@@ -141,26 +138,6 @@ for /f "tokens=5" %%a in ('netstat -ano -p tcp ^| findstr /r /c:":%~1 .*LISTENIN
     set "RUNNING=1"
     goto :eof
 )
-goto :eof
-
-:kill_port
-set "FOUND=0"
-for /f "tokens=5" %%a in ('netstat -ano -p tcp ^| findstr /r /c:":%~1 .*LISTENING"') do (
-    echo   正在结束 PID %%a (端口 %~1)
-    taskkill /f /t /pid %%a >nul 2>&1
-    if !errorlevel! equ 0 set "FOUND=1"
-)
-if "!FOUND!"=="0" echo   未找到监听端口 %~1 的进程
-goto :eof
-
-:kill_window
-echo   正在关闭窗口 "%*"
-taskkill /f /t /fi "WINDOWTITLE eq %*" >nul 2>&1
-goto :eof
-
-:kill_npm_vite
-echo   正在清理 npm/vite 进程...
-powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*npm run dev*' -or $_.CommandLine -like '*vite*' } | ForEach-Object { taskkill /f /t /pid $_.ProcessId 2>$null }"
 goto :eof
 
 :exit
