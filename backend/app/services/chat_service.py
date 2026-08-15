@@ -93,12 +93,13 @@ class ChatService:
         model: str,
         status: str,
         messages: list[dict],
+        trace_id: str,
         error: str | None = None,
-        trace_id: str = "",
     ) -> None:
         """落库一条全链路运行记录；落库自身失败时静默跳过（不能干扰主流程）
 
-        trace_id：请求级追踪 ID，管理员凭它把错误链与 emit 事件串联起来（规格 7.1）
+        trace_id：请求级追踪 ID（必填），管理员凭它把错误链与 emit 事件串联起来（规格 7.1）。
+        全部调用点均显式传入，故不设默认值，防止未来调用方漏传
         """
         try:
             await self.agent_run_repo.create(AgentRun(

@@ -8,7 +8,7 @@ from app.auth import current_user_id
 from app.config.settings import settings
 from app.models.conversation import Conversation
 from app.schemas.chat import SendMessageRequest
-from app.services.chat_service import ChatService
+from app.services.chat_service import USER_FRIENDLY_ERROR, ChatService
 from app.services.agent.prompts import REPLY_ON_VERIFY_FAILED, SYSTEM_PROMPT, build_system_prompt
 
 
@@ -509,8 +509,9 @@ async def test_chat_stream_error_returns_friendly_message_and_records(chat_servi
         async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_OLLAMA):
             tokens.append(chunk)
 
-    # 用户通道：只有友好文案，绝不包含内部错误信息
-    assert any('"error"' in t for t in tokens)
+    # 用户通道：只有友好文案，绝不包含内部错误信息。
+    # 锁定完整友好文案（而非只查 error 键存在），json.dumps 默认分隔符为 ', ' ': '
+    assert any(f'"error": "{USER_FRIENDLY_ERROR}"' in t for t in tokens)
     assert all("Ollama" not in t for t in tokens)
     # 管理员通道：agent_runs 落库 error 字段携带完整错误消息与 trace_id
     assert chat_service.agent_run_repo.create.await_count == 1

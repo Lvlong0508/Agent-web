@@ -177,8 +177,8 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
         # 发出标题事件：chat_service 经 EventRouter 订阅后推送前端侧边栏。
         # 标题为空（未生成/已存在）也发事件，由订阅端自行判断是否推送
         emit("title.completed", "title", {"title": title or ""}, status="completed")
-        # 把（可能为空的）标题写回状态：updates 流仍会带出该字段供全链路记录
-        # （业务推送已改走上面的 title.completed 事件）
+        # 把（可能为空的）标题写回状态：保持状态 schema 完整，供测试断言与
+        # 未来能力读取（业务推送已改走上面的 title.completed 事件）
         return {"generated_title": title or ""}
 
     # verifier 节点：判定 agent 候选回复是否准确，决定结束/重写/报错
