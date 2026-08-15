@@ -16,7 +16,7 @@ def test_serialize_message_ai_with_tool_calls():
     out = serialize_message(msg)
     assert out["role"] == "assistant"
     assert out["content"] == "让我查一下"
-    assert out["tool_calls"] == [{"name": "list_expenses", "args": {"page": 1}}]
+    assert out["tool_calls"] == [{"name": "list_expenses", "args": {"page": 1}, "id": "call_1"}]
 
 
 def test_serialize_message_tool_keeps_call_id_and_name():
@@ -58,6 +58,33 @@ async def test_emit_degrades_outside_stream():
     """非流式上下文（单测）调用 emit 必须降级为 debug，不抛异常"""
     # 非图上下文 get_stream_writer 抛 RuntimeError，emit 内部应吞掉
     emit("test.event", "test_cap", {"a": 1})  # 不应抛异常
+
+
+@pytest.mark.asyncio
+async def test_emit_builds_envelope_and_writes(monkeypatch):
+    """emit 快乐路径：信封字段自动填充，writer 被调用且载荷完整"""
+    written = []
+
+    def fake_writer(event):
+        written.append(event)
+
+    def fake_config():
+        return {"configurable": {"trace_id": "trace-abc"}}
+
+    monkeypatch.setattr("app.services.agent.events.get_stream_writer", lambda: fake_writer)
+    monkeypatch.setattr("app.services.agent.events.get_config", fake_config)
+
+    emit("verifier.verdict", "verifier", {"result": "pass"}, status="completed")
+
+    assert len(written) == 1
+    event = written[0]
+    assert event["type"] == "verifier.verdict"
+    assert event["capability"] == "verifier"
+    assert event["status"] == "completed"
+    assert event["payload"] == {"result": "pass"}
+    assert event["trace_id"] == "trace-abc"
+    assert isinstance(event["seq"], int)
+    assert isinstance(event["timestamp"], float)
 
 
 @pytest.mark.asyncio

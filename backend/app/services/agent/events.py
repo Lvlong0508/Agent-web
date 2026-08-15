@@ -63,8 +63,10 @@ def serialize_message(msg) -> dict:
     """
     from langchain_core.messages import AIMessage, ToolMessage
 
-    role_map = {"ai": "assistant", "human": "user", "tool": "tool", "system": "system"}
-    role = role_map.get(getattr(msg, "type", "unknown"), getattr(msg, "type", "unknown"))
+    # 消息 type 只取一次，避免重复 getattr；system 走 passthrough 即可（映射表无需包含）
+    msg_type = getattr(msg, "type", "unknown")
+    role_map = {"ai": "assistant", "human": "user", "tool": "tool"}
+    role = role_map.get(msg_type, msg_type)
     entry: dict[str, Any] = {"role": role, "content": msg.content}
     if getattr(msg, "id", None):
         entry["id"] = msg.id
@@ -85,7 +87,9 @@ def serialize_message(msg) -> dict:
                     args = json.loads(args)
                 except Exception:
                     args = {"raw": args}
-            calls.append({"name": tc.get("name"), "args": args})
+            # 保留工具调用 id：与 ToolMessage.tool_call_id 一一对应，
+            # 全链路审计才能精确还原"某次调用 → 其结果"的关联（规格 5.2 审计要求）
+            calls.append({"name": tc.get("name"), "args": args, "id": tc.get("id")})
         entry["tool_calls"] = calls
         if getattr(msg, "response_metadata", None):
             entry["response_metadata"] = _json_safe(msg.response_metadata)
@@ -100,19 +104,19 @@ def emit(event_type: str, capability: str, payload: dict | None = None, status: 
     """
     try:
         writer = get_stream_writer()
+        event = CapabilityEvent(
+            type=event_type,
+            capability=capability,
+            status=status,
+            payload=payload or {},
+            trace_id=_current_trace_id(),
+            seq=next(_seq_counter),
+            timestamp=time.time(),
+        )
+        writer(event)
     except Exception as e:
+        # 降级需覆盖"取 writer / 构造信封 / 写入"全过程：任何一环失败都不能阻塞主流程
         logger.debug("emit 降级（非流式上下文）: %s/%s -> %s", capability, event_type, e)
-        return
-    event = CapabilityEvent(
-        type=event_type,
-        capability=capability,
-        status=status,
-        payload=payload or {},
-        trace_id=_current_trace_id(),
-        seq=next(_seq_counter),
-        timestamp=time.time(),
-    )
-    writer(event)
 
 
 class EventRouter:
