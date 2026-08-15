@@ -29,12 +29,6 @@ logger = logging.getLogger(__name__)
 USER_FRIENDLY_ERROR = "小励出了点问题，请稍后再试吧"
 
 
-def _langchain_msg_to_trace(msg) -> dict:
-    """把 LangChain 消息转成全链路记录用的字典（保持时间顺序）。
-    委托给事件系统的统一序列化器，保证全项目序列化规则一致"""
-    return serialize_message(msg)
-
-
 class ChatService:
     """聊天业务层：串联 MongoDB 数据存取和 LangGraph agent 图调用"""
 
@@ -100,8 +94,12 @@ class ChatService:
         status: str,
         messages: list[dict],
         error: str | None = None,
+        trace_id: str = "",
     ) -> None:
-        """落库一条全链路运行记录；落库自身失败时静默跳过（不能干扰主流程）"""
+        """落库一条全链路运行记录；落库自身失败时静默跳过（不能干扰主流程）
+
+        trace_id：请求级追踪 ID，管理员凭它把错误链与 emit 事件串联起来（规格 7.1）
+        """
         try:
             await self.agent_run_repo.create(AgentRun(
                 conversation_id=conv_id,
@@ -110,6 +108,7 @@ class ChatService:
                 status=status,
                 error=error,
                 messages=messages,
+                trace_id=trace_id,
             ))
         except Exception:
             # 落库失败（如数据库不可用）不影响聊天主流程：静默跳过
@@ -280,14 +279,17 @@ class ChatService:
             )
             await self.msg_repo.create(assistant_msg)
 
-            # 全链路落库（status=ok）
-            await self._save_run(conv_id, user_id, model, "ok", trace_messages)
+            # 全链路落库（status=ok），携带 trace_id 供管理员串联错误链
+            await self._save_run(conv_id, user_id, model, "ok", trace_messages, trace_id=trace_id)
             run_recorded = True
         except Exception as e:
             # 运行异常：已收集到的消息序列仍落库并标记 error，便于开发者排查。
             # 注意此时用户消息已保存（在 try 之前），assistant 消息不保存
             # （没有最终回复），符合预期
-            await self._save_run(conv_id, user_id, model, "error", trace_messages, error=str(e))
+            await self._save_run(
+                conv_id, user_id, model, "error", trace_messages,
+                error=str(e), trace_id=trace_id,
+            )
             run_recorded = True
             # 用户通道错误分轨：只下发友好文案，不泄漏任何内部细节；
             # 管理员详情已在上方落库（error 字段 + trace_id 可检索）
@@ -300,7 +302,10 @@ class ChatService:
             # 这里补记一条 error 记录，保持两个集合一致。
             # 落库失败由 _save_run 内部静默吞掉，不干扰生成器关闭流程
             if not run_recorded:
-                await self._save_run(conv_id, user_id, model, "error", trace_messages, error="流被中断（客户端断开或取消）")
+                await self._save_run(
+                    conv_id, user_id, model, "error", trace_messages,
+                    error="流被中断（客户端断开或取消）", trace_id=trace_id,
+                )
 
         # 6. 发送结束标志
         yield "data: [DONE]\n\n"

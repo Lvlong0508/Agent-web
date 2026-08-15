@@ -17,6 +17,7 @@ class AgentRun(BaseModel):
     model: str             # 模型选择名，如 ollama-qwen3.5
     status: str = "ok"     # ok | error，运行失败时便于排查
     error: str | None = None  # 运行异常时的错误信息（仅 status=error 时有值）
+    trace_id: str = ""     # 请求级追踪 ID（uuid4().hex），管理员据此串联错误链（规格 7.1）
     messages: list[dict] = Field(default_factory=list)  # 全链路消息序列，按时间有序
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
