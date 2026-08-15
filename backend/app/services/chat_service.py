@@ -13,7 +13,7 @@ from app.repositories.message_repo import MessageRepo
 from app.models.message import Message
 from app.models.agent_run import AgentRun
 from app.repositories.agent_run_repo import AgentRunRepo
-from app.services.agent.agent_graph import build_agent_graph
+from app.services.agent.registry import build_agent_graph
 # 首轮上下文组装已抽到 context/agent（纯函数，可独立单测）
 from app.services.agent.context.agent import build_agent_messages
 # 能力事件系统：订阅业务事件（标题推送 / verifier 判定）与统一消息序列化
