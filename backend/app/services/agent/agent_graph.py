@@ -10,7 +10,8 @@ from pydantic import BaseModel
 
 from app.config.settings import settings
 from app.repositories.conversation_repo import ConversationRepo
-from app.services.agent.prompts import build_rewrite_prompt, build_title_prompt, VERIFY_PROMPT
+from app.services.agent.context.rewrite import build_rewrite_messages
+from app.services.agent.prompts import build_title_prompt, VERIFY_PROMPT
 
 # 模块级日志器：供节点异常降级等场景记录可诊断信息，便于线上排查
 logger = logging.getLogger(__name__)
@@ -49,11 +50,6 @@ class AgentState(MessagesState):
 
 # 回复不准确时的最大重写次数：验证->重写->再验证循环的上限，防止无限循环拖慢响应
 MAX_VERIFY_RETRIES = 2
-
-# 重写指令的 HumanMessage 标记名：用于在消息流中区分"本轮用户问题"与
-# "质检员修正指令"。两条都是 HumanMessage，不带标记就无法定位本轮用户问题
-REWRITE_INSTRUCTION_MARKER = "rewrite_instruction"
-
 
 class Verdict(BaseModel):
     """验证结论：is_accurate 判定候选回复是否准确，issues 给出问题说明与修正建议"""
@@ -153,45 +149,6 @@ def _decide_verification(verdict: Verdict, state: AgentState) -> dict:
         "verification_result": "fail",
         "rewrite_count": rewrite_count,
     }
-
-
-def _build_rewrite_messages(messages, feedback: str) -> list:
-    """构造重写轮发给 LLM 的消息列表（方案A，纯函数便于单测）。
-
-    实测 bug：重写轮直接把"完整历史 + 被否决的旧候选回复"喂给 LLM，模型看到
-    "这个问题已经回答过了"，最顺的路径是延续旧文本再补一句，而非重新调用工具。
-    修复：只保留 系统提示词 + 本轮用户问题 + 重写指令，剔除非本轮/被否决的
-    旧消息，迫使模型重新推理——系统提示词的铁律（每轮先调工具）才会生效。
-
-    例外：若最后一条是 ToolMessage（重写轮内 agent 已调过工具），必须保留
-    完整消息链（含工具结果），否则工具结果丢失、agent 无据可依。
-    """
-    # 重写轮内已执行工具：保留完整消息（含工具结果），只追加重写指令
-    if messages and isinstance(messages[-1], ToolMessage):
-        return [
-            *messages,
-            HumanMessage(content=build_rewrite_prompt(feedback), name=REWRITE_INSTRUCTION_MARKER),
-        ]
-    # 否则：只保留 系统提示词 + 本轮用户问题 + 重写指令
-    # 系统提示词是对话设定，保留；历史工具轮/重写轮/被否决候选一律丢弃
-    system_msgs = [m for m in messages if isinstance(m, SystemMessage)]
-    # 本轮用户问题：最后一条不带标记的 HumanMessage（带标记的是质检员修正指令）
-    user_question = next(
-        (
-            m
-            for m in reversed(messages)
-            if isinstance(m, HumanMessage) and getattr(m, "name", None) != REWRITE_INSTRUCTION_MARKER
-        ),
-        None,
-    )
-    rewrite_messages = list(system_msgs)
-    if user_question is not None:
-        rewrite_messages.append(user_question)
-    # 重写指令必须带标记：后续重写轮才能从消息流中识别出它，从而定位本轮用户问题
-    rewrite_messages.append(
-        HumanMessage(content=build_rewrite_prompt(feedback), name=REWRITE_INSTRUCTION_MARKER)
-    )
-    return rewrite_messages
 
 
 def _build_verdict_input(
@@ -460,7 +417,7 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
             # 重写轮消息必须剔除被否决的旧候选回复（只留 系统提示词 + 本轮用户
             # 问题 + 重写指令）：否则模型看到旧答案会延续文本而不重新调用工具
             # （实测 bug：质检纠正后助手依然不肯调工具，连续输出同样的错误结论）
-            messages = _build_rewrite_messages(messages, feedback)
+            messages = build_rewrite_messages(messages, feedback)
         response = await llm.ainvoke(messages)
         return {"messages": [response]}
 
