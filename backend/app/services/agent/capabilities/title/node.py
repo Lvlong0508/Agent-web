@@ -2,8 +2,6 @@
 
 from langchain_core.messages import HumanMessage
 
-from app.services.agent.capabilities.core_agent.llm import create_llm
-from app.services.agent.events import emit
 from app.services.agent.prompts import build_title_prompt
 
 
