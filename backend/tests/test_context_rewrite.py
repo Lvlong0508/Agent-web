@@ -74,3 +74,22 @@ def test_build_rewrite_messages_excludes_history_reference_block():
     assert result[0].type == "system"
     assert result[1].name == REWRITE_INSTRUCTION_MARKER
     assert "金额错误" in result[1].content
+
+
+def test_build_rewrite_messages_keeps_current_with_history_block():
+    """正常形态（生产主路径）：历史块与当前问题共存时，重写轮仍能正确定位
+    本轮用户问题（历史块在本轮之前，reversed 先遇本轮问题，排除标记是双保险）"""
+    messages = [
+        SystemMessage(content=SYSTEM_PROMPT),
+        HumanMessage(
+            content="<user>你好</user>\n<assistant>你好，我是小励</assistant>",
+            name=HISTORY_REFERENCE_MARKER,
+        ),
+        HumanMessage(content="本轮问题：我的账单多少？"),
+        AIMessage(content="被否决的旧候选"),
+    ]
+    result = build_rewrite_messages(messages, "金额错误")
+
+    # 历史块被剔除，本轮问题保留为第一条 human
+    assert not any(getattr(m, "name", None) == HISTORY_REFERENCE_MARKER for m in result)
+    assert result[1].content == "本轮问题：我的账单多少？"

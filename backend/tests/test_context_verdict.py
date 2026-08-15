@@ -345,3 +345,27 @@ def test_build_verdict_input_excludes_history_reference_block():
     # 精简上下文 = 当前日期参考 + 候选回复（无历史块混入）
     assert [type(m) for m in reduced] == [SystemMessage, AIMessage]
     assert reduced[-1].content == "候选回复"
+
+
+def test_build_verdict_input_keeps_current_with_history_block():
+    """正常形态（生产主路径）：历史块与当前问题共存时，质检定位仍命中本轮问题。
+    历史块在消息流前面，遍历时先命中它再命中本轮，后者覆盖前者；排除标记
+    保证即便顺序变化也不会把历史块当成本轮问题"""
+    messages = [
+        HumanMessage(
+            content="<user>你好</user>\n<assistant>你好，我是小励</assistant>",
+            name=HISTORY_REFERENCE_MARKER,
+        ),
+        HumanMessage(content="本轮问题：我的账单多少？"),
+        ToolMessage(content='{"total": 2}', name="list_expenses", tool_call_id="1"),
+        AIMessage(content="你有 2 笔支出"),
+    ]
+    reduced, serialized = build_verdict_input(messages)
+
+    # 本轮问题被正确识别（历史块不干扰），工具结果归属本轮
+    assert reduced[1].content == "本轮问题：我的账单多少？"
+    assert reduced[2].content == '{"total": 2}'
+    assert reduced[3].content == "你有 2 笔支出"
+    assert not any(
+        getattr(m, "name", None) == HISTORY_REFERENCE_MARKER for m in reduced
+    )
