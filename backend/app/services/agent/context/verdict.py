@@ -6,6 +6,7 @@ import time
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel
 
+from app.services.agent.context.agent import HISTORY_REFERENCE_MARKER
 from app.services.agent.prompts import VERIFY_PROMPT
 
 # 模块级日志器：记录发给质检员的消息序列，便于排查"内容正确却被拦"
@@ -57,11 +58,13 @@ def build_verdict_input(
 
     # 本轮用户问题：候选回复之前最近的一条 HumanMessage。
     # 注意不能保留所有 HumanMessage——state["messages"] 含多轮历史对话，
-    # 历史轮次的用户消息会干扰质检（实测日志 verifier 输入出现多条 HumanMessage）
+    # 历史轮次的用户消息会干扰质检（实测日志 verifier 输入出现多条 HumanMessage）；
+    # 带 name=history_reference 标记的折叠历史块同样要排除（它是历史参考，不是
+    # 本轮问题，兜底形态下若混入会被质检员误当成当前提问而干扰判定）
     current_user_msg = None
     user_index = -1
     for idx, m in enumerate(dialogue_messages):
-        if isinstance(m, HumanMessage):
+        if isinstance(m, HumanMessage) and getattr(m, "name", None) != HISTORY_REFERENCE_MARKER:
             current_user_msg = m
             user_index = idx
         if m is candidate:

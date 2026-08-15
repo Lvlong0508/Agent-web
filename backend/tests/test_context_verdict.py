@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
+from app.services.agent.context.agent import HISTORY_REFERENCE_MARKER
 from app.services.agent.context.verdict import (
     Verdict,
     build_verdict_input,
@@ -321,3 +322,26 @@ async def test_run_verdict_passes_current_date_to_verifier():
     assert len(system_msgs) == 2
     assert system_msgs[0].content == VERIFY_PROMPT
     assert "当前日期：2026-08-15" in system_msgs[1].content
+
+
+def test_build_verdict_input_excludes_history_reference_block():
+    """质检输入定位本轮用户问题时必须排除历史参考块（name=history_reference）。
+    兜底形态：消息只剩 [历史参考块, 候选回复]（build_agent_messages 在历史末条
+    非 user 时的异常兜底），旧逻辑会把折叠历史误当成本轮问题、写进参考上下文，
+    质检员被历史内容干扰。排除标记后，参考上下文为空，仅剩 当前日期 + 候选回复。"""
+    messages = [
+        HumanMessage(
+            content="<user>你好</user>",
+            name=HISTORY_REFERENCE_MARKER,
+        ),
+        AIMessage(content="候选回复"),
+    ]
+    reduced, serialized = build_verdict_input(messages)
+
+    # 历史参考块不进参考上下文（兜底形态下无本轮问题，参考为空）
+    assert not any(
+        getattr(m, "name", None) == HISTORY_REFERENCE_MARKER for m in reduced
+    )
+    # 精简上下文 = 当前日期参考 + 候选回复（无历史块混入）
+    assert [type(m) for m in reduced] == [SystemMessage, AIMessage]
+    assert reduced[-1].content == "候选回复"
