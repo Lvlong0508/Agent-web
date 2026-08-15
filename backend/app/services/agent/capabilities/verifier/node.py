@@ -12,6 +12,7 @@ from app.services.agent.capabilities.verifier.context.verdict import (
     build_verdict_input,
     run_verdict,
 )
+from app.services.agent.capabilities.verifier.events import VERIFIER_VERDICT_EVENT
 from app.services.agent.events import emit
 
 logger = logging.getLogger(__name__)
@@ -99,7 +100,7 @@ def make_verifier_node(tools: list | None = None):
             # 保证用户仍能拿到 agent 已产出的合格回复
             logger.warning("验证节点调用失败，降级为通过：%s", e)
             # 降级也发出事件，保证 chat_service 能正常走 pass 推送最终版
-            emit("verifier.verdict", "verifier", {"result": "pass"}, status="failed")
+            emit(VERIFIER_VERDICT_EVENT, "verifier", {"result": "pass"}, status="failed")
             return {
                 "verification_feedback": "",
                 "verification_result": "pass",
@@ -113,7 +114,7 @@ def make_verifier_node(tools: list | None = None):
         decision["verdict"] = verdict.model_dump()
         decision["verdict_input"] = verdict_input
         # 发出质检结果事件：chat_service 经 EventRouter 订阅后决定 pass/retry/fail
-        emit("verifier.verdict", "verifier", {"result": decision["verification_result"]}, status="completed")
+        emit(VERIFIER_VERDICT_EVENT, "verifier", {"result": decision["verification_result"]}, status="completed")
         return decision
 
     return verifier_node
