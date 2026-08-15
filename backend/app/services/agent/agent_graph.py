@@ -10,6 +10,7 @@ from app.config.settings import settings
 from app.repositories.conversation_repo import ConversationRepo
 from app.services.agent.context.rewrite import build_rewrite_messages
 from app.services.agent.context.verdict import Verdict, build_verdict_input, run_verdict
+from app.services.agent.events import emit
 from app.services.agent.prompts import build_title_prompt
 
 # 模块级日志器：供节点异常降级等场景记录可诊断信息，便于线上排查
@@ -173,6 +174,9 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
         except Exception:
             # 标题生成失败不能阻断主聊天流程：静默跳过，回复仍照常产出
             pass
+        # 发出标题事件：chat_service 经 EventRouter 订阅后推送前端侧边栏。
+        # 标题为空（未生成/已存在）也发事件，由订阅端自行判断是否推送
+        emit("title.completed", "title", {"title": title or ""}, status="completed")
         # 把（可能为空的）标题写回状态：chat_service 用 stream_mode="updates"
         # 监听此字段，一旦非空就通过 SSE 把标题实时推给前端侧边栏
         return {"generated_title": title or ""}
@@ -217,6 +221,8 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
             # 与标题节点"失败静默跳过"同理，降级为通过（接受候选回复），
             # 保证用户仍能拿到 agent 已产出的合格回复
             logger.warning("验证节点调用失败，降级为通过：%s", e)
+            # 降级也发出事件，保证 chat_service 能正常走 pass 推送最终版
+            emit("verifier.verdict", "verifier", {"result": "pass"}, status="failed")
             return {
                 "verification_feedback": "",
                 "verification_result": "pass",
@@ -229,6 +235,14 @@ def build_agent_graph(conv_repo: ConversationRepo, tools: list | None = None):
         # 把质检员的结构化判定与其输入一并写入状态，供上层全链路记录
         decision["verdict"] = verdict.model_dump()
         decision["verdict_input"] = verdict_input
+        # 发出质检结果事件：chat_service 经 EventRouter 订阅后决定 pass/retry/fail
+        # 的 UI 行为（推送最终版 / 通知重写）。status 用 completed 表示本轮判定完成
+        emit(
+            "verifier.verdict",
+            "verifier",
+            {"result": decision["verification_result"]},
+            status="completed",
+        )
         return decision
 
     # agent 节点：把消息流（已含系统提示词）交给 LLM 生成回复
