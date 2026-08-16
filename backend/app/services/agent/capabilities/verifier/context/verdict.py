@@ -19,6 +19,21 @@ class Verdict(BaseModel):
     issues: str
 
 
+def _with_call_info(m: ToolMessage, args: dict | None) -> ToolMessage:
+    """把工具名与调用参数并进消息内容：OpenAI 格式会丢弃 ToolMessage 的
+    name/args 字段，质检员拿不到查询条件就无法判断"条件正确+返回空=无记录"；
+    拼进 content 是唯一能传给模型的通道"""
+    # 组装"工具名 + 调用参数"前缀；args 为空（该调用无参数）时省略
+    info = f"工具名：{m.name}"
+    if args is not None:
+        info += f"，调用参数：{args}"
+    return ToolMessage(
+        content=f"{info}\n返回结果：{m.content}",
+        tool_call_id=m.tool_call_id,
+        name=m.name,
+    )
+
+
 def build_verdict_input(
     messages,
     history_reference: list | None = None,
@@ -135,11 +150,17 @@ def build_verdict_input(
             if args is not None:
                 entry["args"] = args
         serialized.append(entry)
+    # 本轮工具结果注入调用参数：把 name+args 拼进 content（OpenAI 丢弃
+    # ToolMessage 的 name/args 字段），质检员才能核对查询条件是否与用户要求一致
+    tools_with_info = [
+        _with_call_info(m, tool_args_by_id.get(m.tool_call_id))
+        for m in current_tools
+    ]
     # 精简消息前置参考 SystemMessage（与序列化顺序保持一致）
     reduced = [date_system]
     if tools_system is not None:
         reduced.append(tools_system)
-    reduced.extend([*reference, *current_tools])
+    reduced.extend([*reference, *tools_with_info])
     if candidate is not None:
         reduced.append(candidate)
     return reduced, serialized
@@ -161,13 +182,10 @@ async def run_verdict(
     说法真伪；当前日期供质检员识别工具参数年份明显错误的问题。
     """
     structured = llm.with_structured_output(Verdict)
-    reduced, serialized = build_verdict_input(
+    # 只需精简后的消息序列（reduced）发给质检员；序列化版本由 node.py 侧
+    # 单独获取用于全链路落库，此处不消费
+    reduced, _ = build_verdict_input(
         messages, history_reference, available_tools, current_date
-    )
-    # 诊断日志：确认发给质检员的消息序列（SystemMessage 已过滤、旧轮次已丢弃）
-    logger.info(
-        "verifier 输入消息类型: %s",
-        [m["role"] for m in serialized],
     )
     return await structured.ainvoke(
         [SystemMessage(content=VERIFY_PROMPT), *reduced]

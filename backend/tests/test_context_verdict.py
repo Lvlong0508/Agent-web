@@ -175,7 +175,8 @@ def test_build_verdict_input_keeps_only_current_round_tool_result():
     # 只保留当前日期参考 + 本轮用户问题 + 本轮工具结果 + 候选回复
     assert [type(m) for m in reduced] == [SystemMessage, HumanMessage, ToolMessage, AIMessage]
     assert reduced[1].content == "本轮问题：查8月账单"
-    assert reduced[2].content == "{\"total\": 2}"
+    # tool 消息内容已被注入工具名（该调用无参数，不带 args）
+    assert reduced[2].content == "工具名：list_expenses\n返回结果：{\"total\": 2}"
     assert reduced[3].content == "本轮回答：8月有2笔"
     # 序列化输入不包含历史轮次的工具结果
     tool_contents = [m["content"] for m in serialized if m["role"] == "tool"]
@@ -230,6 +231,14 @@ def test_build_verdict_input_serializes_tool_name_and_args():
         "start_date": "2026-08-15",
         "end_date": "2026-08-31",
     }
+
+    # 精简消息里的 tool 消息同样注入调用参数：OpenAI 格式丢弃 name/args 字段，
+    # 只有拼进 content 质检员才看得到查询条件，才能核对"条件正确+返回空=无记录"
+    assert "工具名：list_expenses_by_date" in reduced[2].content
+    assert "2026-08-01" in reduced[2].content
+    assert "2026-08-15" in reduced[2].content
+    assert "工具名：list_expenses_by_date" in reduced[3].content
+    assert "2026-08-31" in reduced[3].content
 
 
 def test_build_verdict_input_includes_history_reference():
@@ -364,8 +373,43 @@ def test_build_verdict_input_keeps_current_with_history_block():
 
     # 本轮问题被正确识别（历史块不干扰），工具结果归属本轮
     assert reduced[1].content == "本轮问题：我的账单多少？"
-    assert reduced[2].content == '{"total": 2}'
+    assert reduced[2].content == "工具名：list_expenses\n返回结果：{\"total\": 2}"
     assert reduced[3].content == "你有 2 笔支出"
     assert not any(
         getattr(m, "name", None) == HISTORY_REFERENCE_MARKER for m in reduced
     )
+
+
+@pytest.mark.asyncio
+async def test_run_verdict_injects_tool_args_into_reduced_content():
+    """质检员必须能看到工具调用参数：OpenAI 格式丢弃 ToolMessage 的 name/args
+    字段，只有拼进 content 才能传给模型；否则规则2"核对 args 查询条件"落空"""
+    mock_llm = MagicMock()
+    structured = MagicMock()
+    structured.ainvoke = AsyncMock(return_value=Verdict(is_accurate=True, issues=""))
+    mock_llm.with_structured_output.return_value = structured
+
+    messages = [
+        HumanMessage(content="我昨天花了多少？"),
+        AIMessage(
+            content="",
+            tool_calls=[{
+                "id": "call_1",
+                "name": "list_expenses_by_date",
+                "args": {"start_date": "2026-08-15", "end_date": "2026-08-15"},
+            }],
+        ),
+        ToolMessage(
+            content='{"items": [], "total": 0}',
+            name="list_expenses_by_date",
+            tool_call_id="call_1",
+        ),
+        AIMessage(content="昨天没有支出"),
+    ]
+    await run_verdict(mock_llm, messages)
+
+    call_messages = structured.ainvoke.call_args.args[0]
+    tool_msg = next(m for m in call_messages if isinstance(m, ToolMessage))
+    # 调用参数已拼进 content，质检员能看到查询条件
+    assert "2026-08-15" in tool_msg.content
+    assert "工具名" in tool_msg.content
