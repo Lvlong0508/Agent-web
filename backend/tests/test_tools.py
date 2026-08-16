@@ -28,6 +28,7 @@ EXPECTED_TOOL_NAMES = {
     "update_expense",
     "delete_expense",
     "get_now_time",
+    "calculate",
 }
 
 # 仅账单工厂单独产出的工具名：build_expense_tools 不应包含时间工具
