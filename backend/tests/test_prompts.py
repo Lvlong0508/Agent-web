@@ -289,3 +289,14 @@ def test_verify_prompt_checks_tool_args_before_judging_empty():
     assert "查询条件" in VERIFY_PROMPT
     assert "确无记录" in VERIFY_PROMPT
     assert "无数据来源" in VERIFY_PROMPT
+
+
+def test_verify_prompt_generic_list_tool_empty_not_period_evidence():
+    """质检提示词必须说明：无日期参数的通用列表工具（如 list_expenses 全量
+    分页）返回的是全部记录而非特定时段，其空结果只代表全库无记录，不能反证
+    "特定时段无记录"；若用户要特定时段而助手用了无日期参数工具，按容错判定，
+    不得因查询条件不是用户要求的时段就过度拒绝（终审建议：堵住小模型把
+    通用列表工具空结果误当特定时段证据的过度拒绝）"""
+    assert "无日期参数" in VERIFY_PROMPT
+    assert "全库无记录" in VERIFY_PROMPT
+    assert "过度拒绝" in VERIFY_PROMPT

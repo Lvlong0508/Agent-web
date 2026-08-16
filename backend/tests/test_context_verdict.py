@@ -155,7 +155,9 @@ def test_build_verdict_input_serializes_payload():
     # 后续按 role/content 记录
     assert [m["role"] for m in serialized[2:]] == ["human", "tool", "ai"]
     assert serialized[2]["content"] == "我这个月花了多少钱？"
-    assert serialized[3]["content"] == "{\"total\": 2}"
+    # tool 消息落库 content 与质检员实际所见一致（同样注入工具名前缀，
+    # 复盘 input_verdict 时看到的与质检员收到的相同，不会误导排查）
+    assert serialized[3]["content"] == "工具名：list_expenses\n返回结果：{\"total\": 2}"
     assert serialized[4]["content"] == "这个月花了 70 元"
 
 
@@ -178,9 +180,10 @@ def test_build_verdict_input_keeps_only_current_round_tool_result():
     # tool 消息内容已被注入工具名（该调用无参数，不带 args）
     assert reduced[2].content == "工具名：list_expenses\n返回结果：{\"total\": 2}"
     assert reduced[3].content == "本轮回答：8月有2笔"
-    # 序列化输入不包含历史轮次的工具结果
+    # 序列化输入不包含历史轮次的工具结果；且该工具无参数，落库 content
+    # 只注入工具名前缀（与质检员实际所见一致）
     tool_contents = [m["content"] for m in serialized if m["role"] == "tool"]
-    assert tool_contents == ["{\"total\": 2}"]
+    assert tool_contents == ["工具名：list_expenses\n返回结果：{\"total\": 2}"]
 
 
 def test_build_verdict_input_serializes_tool_name_and_args():
@@ -239,6 +242,15 @@ def test_build_verdict_input_serializes_tool_name_and_args():
     assert "2026-08-15" in reduced[2].content
     assert "工具名：list_expenses_by_date" in reduced[3].content
     assert "2026-08-31" in reduced[3].content
+
+    # 落库 content 与质检员实际所见一致（待办修复）：序列化副本的 tool content
+    # 同样注入调用参数前缀，复盘 input_verdict 时看到的与质检员收到的一致，
+    # 不会因"日志是原始 content、实际输入是注入版"而误导排查
+    assert "工具名：list_expenses_by_date" in tools[0]["content"]
+    assert "2026-08-01" in tools[0]["content"]
+    assert "返回结果" in tools[0]["content"]
+    assert "工具名：list_expenses_by_date" in tools[1]["content"]
+    assert "2026-08-31" in tools[1]["content"]
 
 
 def test_build_verdict_input_includes_history_reference():

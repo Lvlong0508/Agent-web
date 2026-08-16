@@ -15,16 +15,22 @@ class Verdict(BaseModel):
     issues: str
 
 
+def _call_info_prefix(m: ToolMessage, args: dict | None) -> str:
+    """组装"工具名 + 调用参数"前缀；args 为空（该调用无参数）时省略。
+    供 _with_call_info（拼进质检员所见 content）与 serialized 落库共用，
+    保证两处内容一致"""
+    info = f"工具名：{m.name}"
+    if args is not None:
+        info += f"，调用参数：{args}"
+    return info
+
+
 def _with_call_info(m: ToolMessage, args: dict | None) -> ToolMessage:
     """把工具名与调用参数并进消息内容：OpenAI 格式会丢弃 ToolMessage 的
     name/args 字段，质检员拿不到查询条件就无法判断"条件正确+返回空=无记录"；
     拼进 content 是唯一能传给模型的通道"""
-    # 组装"工具名 + 调用参数"前缀；args 为空（该调用无参数）时省略
-    info = f"工具名：{m.name}"
-    if args is not None:
-        info += f"，调用参数：{args}"
     return ToolMessage(
-        content=f"{info}\n返回结果：{m.content}",
+        content=f"{_call_info_prefix(m, args)}\n返回结果：{m.content}",
         tool_call_id=m.tool_call_id,
         name=m.name,
     )
@@ -145,6 +151,10 @@ def build_verdict_input(
             args = tool_args_by_id.get(m.tool_call_id)
             if args is not None:
                 entry["args"] = args
+            # 落库 content 与质检员实际所见保持一致：OpenAI 格式丢弃 ToolMessage
+            # 的 name/args 字段，质检员只看 content，序列化副本若用原始 content
+            # 复盘时"input_verdict 与真实输入不一致"会误导排查，这里同样注入
+            entry["content"] = f"{_call_info_prefix(m, args)}\n返回结果：{m.content}"
         serialized.append(entry)
     # 本轮工具结果注入调用参数：把 name+args 拼进 content（OpenAI 丢弃
     # ToolMessage 的 name/args 字段），质检员才能核对查询条件是否与用户要求一致
