@@ -13,14 +13,18 @@ from app.repositories.message_repo import MessageRepo
 from app.models.message import Message
 from app.models.agent_run import AgentRun
 from app.repositories.agent_run_repo import AgentRunRepo
-from app.services.agent.registry import build_agent_graph
-# 首轮上下文组装已抽到 context/agent（纯函数，可独立单测）
-from app.services.agent.context.agent import build_agent_messages
-# 能力事件系统：订阅业务事件（标题推送 / verifier 判定）与统一消息序列化
-from app.services.agent.events import CapabilityEvent, EventRouter, serialize_message
-from app.services.agent.capabilities.title.events import TITLE_COMPLETED_EVENT
-from app.services.agent.capabilities.verifier.events import VERIFIER_VERDICT_EVENT
-from app.services.agent.prompts import REPLY_ON_VERIFY_FAILED
+# agent 模块公共 API 统一从包出口导入，避免深层路径散落
+# （首轮上下文组装与能力事件系统均已通过包出口暴露，见 spec 2026-08-17-agent-import-optimization-design）
+from app.services.agent import (
+    CapabilityEvent,
+    EventRouter,
+    REPLY_ON_VERIFY_FAILED,
+    TITLE_COMPLETED_EVENT,
+    VERIFIER_VERDICT_EVENT,
+    build_agent_graph,
+    build_agent_messages,
+    serialize_message,
+)
 from app.tools import get_tools
 
 # 模块级日志器：chat_stream 运行异常时记录含 trace_id 的上下文，便于检索
