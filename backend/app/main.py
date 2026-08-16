@@ -15,6 +15,10 @@ import app.models.expense  # noqa: F401  导入模型让 Base.metadata 注册 ex
 # 日志初始化：默认 INFO 级别输出到控制台，便于排查验证器/标题节点等关键链路
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
+# 屏蔽 httpx 的 HTTP 请求日志：每次调用 LLM 都会刷一行
+# "HTTP Request: POST https://dashscope..."，纯噪音；只保留 WARNING 及以上的异常日志
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 
 # 应用生命周期：启动时初始化 MongoDB 并自动创建 MySQL 表
 @asynccontextmanager

@@ -71,16 +71,6 @@ def make_verifier_node(tools: list | None = None):
             max_tokens=600,
         )
         try:
-            # 诊断日志：记录校验依据——候选回复内容与对话中的工具结果条数，
-            # 便于排查"内容正确却被拦"时确认质检员到底核对了什么
-            last_msg = state["messages"][-1] if state["messages"] else None
-            tool_msgs = [m for m in state["messages"] if m.type == "tool"]
-            logger.info(
-                "verifier 校验: rewrite_count=%s 候选=%r 工具结果数=%s",
-                state.get("rewrite_count", 0),
-                getattr(last_msg, "content", "")[:200],
-                len(tool_msgs),
-            )
             # 构造发给质检员的输入（同时拿到序列化版本，供全链路记录）。
             # 传入精纯历史参考：质检员理解基于历史记忆的回复（如称呼用户名），
             # 又不受工具轮/重写轮噪音干扰。
@@ -93,7 +83,10 @@ def make_verifier_node(tools: list | None = None):
             verdict = await run_verdict(
                 llm, state["messages"], state.get("history_reference"), available_tools
             )
-            logger.info("verifier 判定: is_accurate=%s issues=%r", verdict.is_accurate, verdict.issues)
+            # 质检判定一行结果：短小，供实时确认"过没过"；细节（候选内容/工具
+            # 结果）已全量落库到 agent_runs（verdict_input/verdict），终端不重复。
+            # DEBUG 级别：默认不刷屏，排障（临时开 DEBUG）时可看
+            logger.debug("verifier 判定: is_accurate=%s issues=%r", verdict.is_accurate, verdict.issues)
         except Exception as e:
             # 验证器调用失败（网络异常/模型不支持结构化输出等）不能拖垮主流程：
             # 与标题节点"失败静默跳过"同理，降级为通过（接受候选回复），
