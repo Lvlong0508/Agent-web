@@ -1,6 +1,5 @@
 """质检员上下文组装与执行：精简对话序列、注入参考信息、调用结构化判定"""
 
-import logging
 import time
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -8,9 +7,6 @@ from pydantic import BaseModel
 
 from app.services.agent.context.agent import HISTORY_REFERENCE_MARKER
 from app.services.agent.prompts import VERIFY_PROMPT
-
-# 模块级日志器：记录发给质检员的消息序列，便于排查"内容正确却被拦"
-logger = logging.getLogger(__name__)
 
 
 class Verdict(BaseModel):
