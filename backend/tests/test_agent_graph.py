@@ -6,15 +6,15 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END
 
 from app.config.settings import settings
-from app.services.agent.agent_graph import (
-    build_agent_graph,
-    create_llm,
-    should_continue,
-    _generate_title_if_empty,
-    route_after_verify,
+from app.services.agent import (
     MAX_VERIFY_RETRIES,
     Verdict,
     _decide_verification,
+    _generate_title_if_empty,
+    build_agent_graph,
+    create_llm,
+    route_after_verify,
+    should_continue,
 )
 from app.services.agent.prompts import SYSTEM_PROMPT
 

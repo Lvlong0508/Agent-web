@@ -13,7 +13,7 @@ from app.auth import current_user_id
 from app.config.settings import settings
 from app.middleware.mysql import Base, SessionLocal, engine
 from app.models.expense import Expense
-from app.services.agent.agent_graph import Verdict, build_agent_graph
+from app.services.agent import Verdict, build_agent_graph
 from app.services.chat_service import ChatService
 from app.tools import get_tools
 from app.tools.expense_tool import build_expense_tools
