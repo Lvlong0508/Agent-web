@@ -52,3 +52,19 @@ async def test_calculate_invalid_expression_raises_value_error():
     tools = {t.name: t for t in build_arithmetic_tools()}
     with pytest.raises(ValueError):
         await tools["calculate"].ainvoke({"expression": "abc"})
+
+
+@pytest.mark.asyncio
+async def test_calculate_type_error_raises_value_error():
+    """类型不匹配（如数字加字符串）统一转 ValueError"""
+    tools = {t.name: t for t in build_arithmetic_tools()}
+    with pytest.raises(ValueError):
+        await tools["calculate"].ainvoke({"expression": "1+'a'"})
+
+
+@pytest.mark.asyncio
+async def test_calculate_float_noise_rounded():
+    """浮点结果四舍五入到10位：0.1+0.2 = 0.3（而非 0.30000000000000004）"""
+    tools = {t.name: t for t in build_arithmetic_tools()}
+    result = await tools["calculate"].ainvoke({"expression": "0.1+0.2"})
+    assert result["result"] == 0.3

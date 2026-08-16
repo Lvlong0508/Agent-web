@@ -33,13 +33,22 @@ def build_arithmetic_tools() -> list:
     async def calculate(expression: str) -> dict:
         """计算一个数学表达式，返回表达式原文与计算结果；支持混合运算（括号 + 优先级）。"""
         try:
-            # names={}：禁用变量名，表达式只能含数字与运算符；simpleeval 默认
-            # 除法返回 float，天然支持先乘除后加减与括号优先级
-            result = simpleeval.simple_eval(expression, names={})
-        except (ZeroDivisionError, simpleeval.InvalidExpression, SyntaxError) as e:
-            # 除零/非法表达式/语法错误统一转 ValueError，langchain 自动把
-            # 异常转成错误提示反馈给 LLM，让其修正表达式后重试
+            # names={}：禁用变量名；functions={}：不启用任何内置函数（simpleeval
+            # 默认会开放 rand/randint/int/float/str，一并关掉才保证表达式里只允许
+            # 数字与运算符；simpleeval 默认除法返回 float，天然支持先乘除后加减与括号优先级
+            result = simpleeval.simple_eval(expression, names={}, functions={})
+        except (
+            TypeError,
+            OverflowError,
+            ZeroDivisionError,
+            simpleeval.InvalidExpression,
+            SyntaxError,
+        ) as e:
+            # 除零/非法表达式/类型错误（如 1+"a"）/数值溢出（如 2**1030）/语法错误
+            # 统一转 ValueError，langchain 自动把异常转成错误提示反馈给 LLM，
+            # 让其修正表达式后重试
             raise ValueError(f"表达式无法计算：{e}") from e
-        return {"expression": expression, "result": float(result)}
+        # 浮点结果四舍五入到10位，避免 0.30000000000000004 这类尾数噪音干扰质检
+        return {"expression": expression, "result": round(float(result), 10)}
 
     return [calculate]
