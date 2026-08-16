@@ -4,8 +4,8 @@
 - 对外单一入口：chat_service / 测试统一从本包导入，不再深入内部子包路径
 - __all__ 即包的文档化 API 清单：新增能力若需对外暴露，在此追加一行
 - 只重导出公共符号，不暴露 make_agent_node / make_verifier_node / _validate_* 等内部实现
-- 两个下划线函数（_decide_verification / _generate_title_if_empty）因测试仍依赖
-  其被薄壳重导出的历史路径而保留在出口，非出口泄漏内部实现
+- 两个下划线函数（_decide_verification / _generate_title_if_empty）因测试仍
+  从本出口依赖它们而保留，非出口泄漏内部实现
 """
 
 from app.services.agent.capabilities.core_agent.llm import create_llm
