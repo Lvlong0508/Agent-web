@@ -12,6 +12,8 @@ LangGraph 中会被放进线程池执行，而本项目用 contextvar 传递用�
 只允许数字和运算符，保证安全。
 """
 
+import math
+
 import simpleeval
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -37,6 +39,9 @@ def build_arithmetic_tools() -> list:
             # 默认会开放 rand/randint/int/float/str，一并关掉才保证表达式里只允许
             # 数字与运算符；simpleeval 默认除法返回 float，天然支持先乘除后加减与括号优先级
             result = simpleeval.simple_eval(expression, names={}, functions={})
+            # float 转换必须放在 try 内：simple_eval 对超大整数（如 2**1030）会正常返回
+            # int，真正的 OverflowError 在这里抛出；放 try 外会漏出原始英文 traceback
+            result = float(result)
         except (
             TypeError,
             OverflowError,
@@ -48,7 +53,12 @@ def build_arithmetic_tools() -> list:
             # 统一转 ValueError，langchain 自动把异常转成错误提示反馈给 LLM，
             # 让其修正表达式后重试
             raise ValueError(f"表达式无法计算：{e}") from e
+        # round 前先判断有限性：simpleeval 返回的浮点数可能为 inf/nan（如 1e400），
+        # langchain 序列化时会产生非严格 JSON 的 Infinity，质检员小模型无法可靠判定，
+        # 统一转 ValueError 让 LLM 换一种表达
+        if not math.isfinite(result):
+            raise ValueError("表达式计算结果超出可表示范围（inf/nan），请换一种表达方式")
         # 浮点结果四舍五入到10位，避免 0.30000000000000004 这类尾数噪音干扰质检
-        return {"expression": expression, "result": round(float(result), 10)}
+        return {"expression": expression, "result": round(result, 10)}
 
     return [calculate]

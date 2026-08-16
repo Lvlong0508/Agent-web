@@ -68,3 +68,19 @@ async def test_calculate_float_noise_rounded():
     tools = {t.name: t for t in build_arithmetic_tools()}
     result = await tools["calculate"].ainvoke({"expression": "0.1+0.2"})
     assert result["result"] == 0.3
+
+
+@pytest.mark.asyncio
+async def test_calculate_huge_exponent_raises_value_error():
+    """超大整数（2**1030）float 转换溢出，统一转 ValueError"""
+    tools = {t.name: t for t in build_arithmetic_tools()}
+    with pytest.raises(ValueError):
+        await tools["calculate"].ainvoke({"expression": "2**1030"})
+
+
+@pytest.mark.asyncio
+async def test_calculate_infinity_result_raises_value_error():
+    """结果超出浮点范围（1e400 → inf）统一转 ValueError，避免 Infinity 污染质检"""
+    tools = {t.name: t for t in build_arithmetic_tools()}
+    with pytest.raises(ValueError):
+        await tools["calculate"].ainvoke({"expression": "1e400"})
