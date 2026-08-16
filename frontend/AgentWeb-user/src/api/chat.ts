@@ -107,6 +107,13 @@ export function sendMessageStream(
         if (parsed.rewriting) onRewriting()
         // 验证通过后的最终版完整文本：前端替换占位并打字机渲染
         if (parsed.final) onFinal(parsed.final)
+        // 后端发生内部异常：只下发统一友好文案（用户无需知道内部细节）。
+        // 收到即终止流并调用 onError 通知 UI 弹出提示
+        if (parsed.error) {
+          onError(parsed.error)
+          finish()
+          return
+        }
       } catch {
         // 忽略解析失败的行
       }

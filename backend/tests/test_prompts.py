@@ -265,3 +265,38 @@ def test_rewrite_prompt_tells_agent_to_reorganize():
 def test_reply_on_verify_failed_is_fixed_message():
     """验证失败超限后返回固定文案"""
     assert REPLY_ON_VERIFY_FAILED == "小励出现了点问题，请稍后再尝试吧"
+
+
+def test_verify_prompt_empty_result_is_valid_source():
+    """质检提示词必须明确：工具返回空结果（total=0/items=[]）本身就是有效
+    直接来源，表示该查询条件下没有记录——助手据此回答"无记录/0笔/没花"是
+    准确的，严禁把空结果当"无数据来源"误判。
+    （用户实测：昨天无账单，工具查昨日返回空，agent 正确回复"昨天没花"
+    却被质检误拦，陷入反复重写循环）"""
+    assert "空结果" in VERIFY_PROMPT
+    assert "total=0" in VERIFY_PROMPT
+    assert "无记录" in VERIFY_PROMPT
+    assert "没花" in VERIFY_PROMPT
+
+
+def test_verify_prompt_checks_tool_args_before_judging_empty():
+    """质检提示词必须要求：判定前先核对 tool 消息自带的 name（工具名）与
+    args（查询参数，如日期区间），确认查询条件与用户要求一致；查询条件正确、
+    工具返回空结果即代表该条件下确无记录，不得把"查询条件正确但返回空"
+    误判为"无数据来源"。
+    （用户实测：质检员把"昨日查询返回空"误判为"默认查询/无数据"）"""
+    assert "查询参数" in VERIFY_PROMPT
+    assert "查询条件" in VERIFY_PROMPT
+    assert "确无记录" in VERIFY_PROMPT
+    assert "无数据来源" in VERIFY_PROMPT
+
+
+def test_verify_prompt_generic_list_tool_empty_not_period_evidence():
+    """质检提示词必须说明：无日期参数的通用列表工具（如 list_expenses 全量
+    分页）返回的是全部记录而非特定时段，其空结果只代表全库无记录，不能反证
+    "特定时段无记录"；若用户要特定时段而助手用了无日期参数工具，按容错判定，
+    不得因查询条件不是用户要求的时段就过度拒绝（终审建议：堵住小模型把
+    通用列表工具空结果误当特定时段证据的过度拒绝）"""
+    assert "无日期参数" in VERIFY_PROMPT
+    assert "全库无记录" in VERIFY_PROMPT
+    assert "过度拒绝" in VERIFY_PROMPT

@@ -8,7 +8,7 @@ from app.auth import current_user_id
 from app.config.settings import settings
 from app.models.conversation import Conversation
 from app.schemas.chat import SendMessageRequest
-from app.services.chat_service import ChatService
+from app.services.chat_service import USER_FRIENDLY_ERROR, ChatService
 from app.services.agent.prompts import REPLY_ON_VERIFY_FAILED, SYSTEM_PROMPT, build_system_prompt
 
 
@@ -104,7 +104,8 @@ async def test_chat_stream_respects_current_user(chat_service):
         async def fake_astream(input, **kwargs):
             yield ("messages", (mock_chunk, mock_meta))
             # 验证通过：推送最终版（token 缓冲后经 final 事件一次性给出）
-            yield ("updates", {"verifier": {"verification_result": "pass"}})
+            yield ("custom", {"type": "verifier.verdict", "capability": "verifier",
+                              "status": "completed", "payload": {"result": "pass"}})
 
         chat_service.graph = MagicMock()
         chat_service.graph.astream = fake_astream
@@ -139,10 +140,11 @@ async def test_chat_stream_saves_messages(chat_service):
     async def fake_astream(input, **kwargs):
         """假的 graph.astream：记录输入并产出 (模式, 数据) 元组"""
         graph_input.update(input)
-        # 新的流模式为列表 ["messages", "updates"]，产出物统一为 (mode, data) 元组：
-        # messages 模式下 data 是 (chunk, metadata)，updates 模式下是节点增量状态
+        # 业务事件走 custom 流（verifier 判定），messages 流只出 token：
+        # chat_service 订阅 custom 事件驱动 final 推送
         yield ("messages", (mock_chunk, mock_meta))
-        yield ("updates", {"verifier": {"verification_result": "pass"}})
+        yield ("custom", {"type": "verifier.verdict", "capability": "verifier",
+                          "status": "completed", "payload": {"result": "pass"}})
 
     chat_service.graph = MagicMock()
     chat_service.graph.astream = fake_astream
@@ -214,10 +216,12 @@ async def test_chat_stream_pushes_generated_title(chat_service):
     mock_meta = {"langgraph_node": "agent"}
 
     async def fake_astream(input, **kwargs):
-        """假的 graph.astream：先发 generate_title 更新，再发 agent token + 验证通过"""
-        yield ("updates", {"generate_title": {"generated_title": "新标题"}})
+        """假的 graph.astream：先发标题事件，再发 agent token + 验证通过"""
+        yield ("custom", {"type": "title.completed", "capability": "title",
+                          "status": "completed", "payload": {"title": "新标题"}})
         yield ("messages", (mock_chunk, mock_meta))
-        yield ("updates", {"verifier": {"verification_result": "pass"}})
+        yield ("custom", {"type": "verifier.verdict", "capability": "verifier",
+                          "status": "completed", "payload": {"result": "pass"}})
 
     chat_service.graph = MagicMock()
     chat_service.graph.astream = fake_astream
@@ -244,10 +248,12 @@ async def test_chat_stream_ignores_empty_title_update(chat_service):
     mock_meta = {"langgraph_node": "agent"}
 
     async def fake_astream(input, **kwargs):
-        """假的 graph.astream：generate_title 返回空标题，仅产出一条 token + 验证通过"""
-        yield ("updates", {"generate_title": {"generated_title": ""}})
+        """假的 graph.astream：标题事件为空串，仅产出一条 token + 验证通过"""
+        yield ("custom", {"type": "title.completed", "capability": "title",
+                          "status": "completed", "payload": {"title": ""}})
         yield ("messages", (mock_chunk, mock_meta))
-        yield ("updates", {"verifier": {"verification_result": "pass"}})
+        yield ("custom", {"type": "verifier.verdict", "capability": "verifier",
+                          "status": "completed", "payload": {"result": "pass"}})
 
     chat_service.graph = MagicMock()
     chat_service.graph.astream = fake_astream
@@ -280,7 +286,8 @@ async def test_chat_stream_filters_title_token(chat_service):
         """假的 graph.astream：先弹标题 chunk，再弹真正的回复 token + 验证通过"""
         yield ("messages", (title_chunk, {"langgraph_node": "generate_title"}))
         yield ("messages", (agent_chunk, {"langgraph_node": "agent"}))
-        yield ("updates", {"verifier": {"verification_result": "pass"}})
+        yield ("custom", {"type": "verifier.verdict", "capability": "verifier",
+                          "status": "completed", "payload": {"result": "pass"}})
 
     chat_service.graph = MagicMock()
     chat_service.graph.astream = fake_astream
@@ -356,9 +363,11 @@ async def test_chat_stream_pushes_rewriting_event(chat_service):
     async def fake_astream(input, **kwargs):
         """首轮流式 token → verifier retry → 重写轮 token → verifier pass"""
         yield ("messages", (first_chunk, {"langgraph_node": "agent"}))
-        yield ("updates", {"verifier": {"verification_result": "retry"}})
+        yield ("custom", {"type": "verifier.verdict", "capability": "verifier",
+                          "status": "completed", "payload": {"result": "retry"}})
         yield ("messages", (rewrite_chunk, {"langgraph_node": "agent"}))
-        yield ("updates", {"verifier": {"verification_result": "pass"}})
+        yield ("custom", {"type": "verifier.verdict", "capability": "verifier",
+                          "status": "completed", "payload": {"result": "pass"}})
 
     chat_service.graph = MagicMock()
     chat_service.graph.astream = fake_astream
@@ -392,9 +401,11 @@ async def test_chat_stream_pushes_final_after_rewrite(chat_service):
     async def fake_astream(input, **kwargs):
         """首轮 token → retry → 重写轮 token → verifier pass"""
         yield ("messages", (first_chunk, {"langgraph_node": "agent"}))
-        yield ("updates", {"verifier": {"verification_result": "retry"}})
+        yield ("custom", {"type": "verifier.verdict", "capability": "verifier",
+                          "status": "completed", "payload": {"result": "retry"}})
         yield ("messages", (rewrite_chunk, {"langgraph_node": "agent"}))
-        yield ("updates", {"verifier": {"verification_result": "pass"}})
+        yield ("custom", {"type": "verifier.verdict", "capability": "verifier",
+                          "status": "completed", "payload": {"result": "pass"}})
 
     chat_service.graph = MagicMock()
     chat_service.graph.astream = fake_astream
@@ -428,9 +439,11 @@ async def test_chat_stream_handles_rewrite_round_emitting_full_aimessage(chat_se
     async def fake_astream(input, **kwargs):
         """首轮 token → retry → 重写轮完整 AIMessage → verifier pass"""
         yield ("messages", (first_chunk, {"langgraph_node": "agent"}))
-        yield ("updates", {"verifier": {"verification_result": "retry"}})
+        yield ("custom", {"type": "verifier.verdict", "capability": "verifier",
+                          "status": "completed", "payload": {"result": "retry"}})
         yield ("messages", (rewrite_msg, {"langgraph_node": "agent"}))
-        yield ("updates", {"verifier": {"verification_result": "pass"}})
+        yield ("custom", {"type": "verifier.verdict", "capability": "verifier",
+                          "status": "completed", "payload": {"result": "pass"}})
 
     chat_service.graph = MagicMock()
     chat_service.graph.astream = fake_astream
@@ -455,7 +468,8 @@ async def test_chat_stream_fail_returns_fixed_message(chat_service):
     chat_service.msg_repo.create = AsyncMock(return_value=None)
 
     async def fake_astream(input, **kwargs):
-        yield ("updates", {"verifier": {"verification_result": "fail"}})
+        yield ("custom", {"type": "verifier.verdict", "capability": "verifier",
+                          "status": "completed", "payload": {"result": "fail"}})
 
     chat_service.graph = MagicMock()
     chat_service.graph.astream = fake_astream
@@ -468,3 +482,66 @@ async def test_chat_stream_fail_returns_fixed_message(chat_service):
     calls = [c.args[0] for c in chat_service.msg_repo.create.call_args_list]
     assistant_saved = [m for m in calls if m.role == "assistant"][0]
     assert assistant_saved.content == REPLY_ON_VERIFY_FAILED
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_error_returns_friendly_message_and_records(chat_service):
+    """图运行异常：SSE 只下发友好文案（不含内部细节），agent_runs 落库完整错误+trace_id"""
+    conv = Conversation(_id="c1", user_id="anonymous")
+    chat_service.conv_repo.get_by_id = AsyncMock(return_value=conv)
+    chat_service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
+    chat_service.msg_repo.create = AsyncMock(return_value=None)
+    chat_service.agent_run_repo.create = AsyncMock(return_value=None)
+
+    async def boom_astream(input, **kwargs):
+        """假的 graph.astream：首次迭代即抛 ConnectionError（模拟底层模型不可用）"""
+        if False:
+            yield  # 仅为了让函数成为 async generator，async for 才能迭代并触发异常
+        raise ConnectionError("Ollama down")
+
+    chat_service.graph = MagicMock()
+    chat_service.graph.astream = boom_astream
+
+    tokens = []
+    # chat_stream 在 yield 友好文案后会重新抛出原异常（供 API 层返回错误状态），
+    # 故用 pytest.raises 捕获，同时仍能收集到已下发的 SSE 片段
+    with pytest.raises(ConnectionError):
+        async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_OLLAMA):
+            tokens.append(chunk)
+
+    # 用户通道：只有友好文案，绝不包含内部错误信息。
+    # 锁定完整友好文案（而非只查 error 键存在），json.dumps 默认分隔符为 ', ' ': '
+    assert any(f'"error": "{USER_FRIENDLY_ERROR}"' in t for t in tokens)
+    assert all("Ollama" not in t for t in tokens)
+    # 管理员通道：agent_runs 落库 error 字段携带完整错误消息与 trace_id
+    assert chat_service.agent_run_repo.create.await_count == 1
+    run = chat_service.agent_run_repo.create.await_args.args[0]
+    assert run.status == "error"
+    assert "Ollama down" in run.error
+    assert run.trace_id and len(run.trace_id) == 32
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_config_carries_trace_id(chat_service):
+    """astream 的 config 必须携带请求级 trace_id（供 emit 与落库串联错误链）"""
+    conv = Conversation(_id="c1", user_id="anonymous")
+    chat_service.conv_repo.get_by_id = AsyncMock(return_value=conv)
+    chat_service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
+    chat_service.msg_repo.create = AsyncMock(return_value=None)
+
+    captured = {}
+
+    async def fake_astream(input, **kwargs):
+        captured.update(kwargs.get("config", {}))
+        yield ("custom", {"type": "verifier.verdict", "capability": "verifier",
+                          "status": "completed", "payload": {"result": "pass"}})
+
+    chat_service.graph = MagicMock()
+    chat_service.graph.astream = fake_astream
+
+    async for _ in chat_service.chat_stream("c1", "hello", settings.MODEL_OLLAMA):
+        pass
+
+    trace_id = captured["configurable"]["trace_id"]
+    assert trace_id and len(trace_id) == 32  # uuid4().hex 长度
+    assert captured["configurable"]["thread_id"] == "c1"

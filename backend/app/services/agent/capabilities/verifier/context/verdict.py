@@ -1,6 +1,5 @@
 """质检员上下文组装与执行：精简对话序列、注入参考信息、调用结构化判定"""
 
-import logging
 import time
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -9,14 +8,32 @@ from pydantic import BaseModel
 from app.services.agent.context.agent import HISTORY_REFERENCE_MARKER
 from app.services.agent.prompts import VERIFY_PROMPT
 
-# 模块级日志器：记录发给质检员的消息序列，便于排查"内容正确却被拦"
-logger = logging.getLogger(__name__)
-
 
 class Verdict(BaseModel):
     """验证结论：is_accurate 判定候选回复是否准确，issues 给出问题说明与修正建议"""
     is_accurate: bool
     issues: str
+
+
+def _call_info_prefix(m: ToolMessage, args: dict | None) -> str:
+    """组装"工具名 + 调用参数"前缀；args 为空（该调用无参数）时省略。
+    供 _with_call_info（拼进质检员所见 content）与 serialized 落库共用，
+    保证两处内容一致"""
+    info = f"工具名：{m.name}"
+    if args is not None:
+        info += f"，调用参数：{args}"
+    return info
+
+
+def _with_call_info(m: ToolMessage, args: dict | None) -> ToolMessage:
+    """把工具名与调用参数并进消息内容：OpenAI 格式会丢弃 ToolMessage 的
+    name/args 字段，质检员拿不到查询条件就无法判断"条件正确+返回空=无记录"；
+    拼进 content 是唯一能传给模型的通道"""
+    return ToolMessage(
+        content=f"{_call_info_prefix(m, args)}\n返回结果：{m.content}",
+        tool_call_id=m.tool_call_id,
+        name=m.name,
+    )
 
 
 def build_verdict_input(
@@ -134,12 +151,22 @@ def build_verdict_input(
             args = tool_args_by_id.get(m.tool_call_id)
             if args is not None:
                 entry["args"] = args
+            # 落库 content 与质检员实际所见保持一致：OpenAI 格式丢弃 ToolMessage
+            # 的 name/args 字段，质检员只看 content，序列化副本若用原始 content
+            # 复盘时"input_verdict 与真实输入不一致"会误导排查，这里同样注入
+            entry["content"] = f"{_call_info_prefix(m, args)}\n返回结果：{m.content}"
         serialized.append(entry)
+    # 本轮工具结果注入调用参数：把 name+args 拼进 content（OpenAI 丢弃
+    # ToolMessage 的 name/args 字段），质检员才能核对查询条件是否与用户要求一致
+    tools_with_info = [
+        _with_call_info(m, tool_args_by_id.get(m.tool_call_id))
+        for m in current_tools
+    ]
     # 精简消息前置参考 SystemMessage（与序列化顺序保持一致）
     reduced = [date_system]
     if tools_system is not None:
         reduced.append(tools_system)
-    reduced.extend([*reference, *current_tools])
+    reduced.extend([*reference, *tools_with_info])
     if candidate is not None:
         reduced.append(candidate)
     return reduced, serialized
@@ -161,13 +188,10 @@ async def run_verdict(
     说法真伪；当前日期供质检员识别工具参数年份明显错误的问题。
     """
     structured = llm.with_structured_output(Verdict)
-    reduced, serialized = build_verdict_input(
+    # 只需精简后的消息序列（reduced）发给质检员；序列化版本由 node.py 侧
+    # 单独获取用于全链路落库，此处不消费
+    reduced, _ = build_verdict_input(
         messages, history_reference, available_tools, current_date
-    )
-    # 诊断日志：确认发给质检员的消息序列（SystemMessage 已过滤、旧轮次已丢弃）
-    logger.info(
-        "verifier 输入消息类型: %s",
-        [m["role"] for m in serialized],
     )
     return await structured.ainvoke(
         [SystemMessage(content=VERIFY_PROMPT), *reduced]

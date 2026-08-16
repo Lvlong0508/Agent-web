@@ -97,8 +97,10 @@ async def test_astream_runs_full_graph_with_title_and_tokens():
     async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
         return Verdict(is_accurate=True, issues="")
 
-    with patch("app.services.agent.agent_graph.run_verdict", side_effect=fake_run_verdict):
-        with patch("app.services.agent.agent_graph.create_llm", side_effect=fake_create_llm):
+    with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
+        with patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm), \
+             patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm), \
+             patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm):
             async for item in graph.astream(
                 {
                     "messages": [HumanMessage(content="hi")],
@@ -156,8 +158,10 @@ async def test_title_failure_does_not_block_chat():
     async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
         return Verdict(is_accurate=True, issues="")
 
-    with patch("app.services.agent.agent_graph.run_verdict", side_effect=fake_run_verdict):
-        with patch("app.services.agent.agent_graph.create_llm", side_effect=fake_create_llm):
+    with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
+        with patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm), \
+             patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm), \
+             patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm):
             async for item in graph.astream(
                 {
                     "messages": [HumanMessage(content="hi")],
@@ -201,8 +205,10 @@ async def test_generate_title_node_exposes_title_in_updates():
     async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
         return Verdict(is_accurate=True, issues="")
 
-    with patch("app.services.agent.agent_graph.run_verdict", side_effect=fake_run_verdict):
-        with patch("app.services.agent.agent_graph.create_llm", side_effect=fake_create_llm):
+    with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
+        with patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm), \
+             patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm), \
+             patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm):
             async for mode, data in graph.astream(
                 {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
                 stream_mode=["messages", "updates"],
@@ -222,7 +228,7 @@ async def test_generate_title_node_exposes_title_in_updates():
 
 def test_create_llm_ollama_model():
     """测试 create_llm 按 ollama-qwen3.5 创建 Ollama 配置的 LLM"""
-    with patch("app.services.agent.agent_graph.ChatOpenAI") as mock_cls:
+    with patch("app.services.agent.capabilities.core_agent.llm.ChatOpenAI") as mock_cls:
         create_llm(streaming=True, model=settings.MODEL_OLLAMA)
     mock_cls.assert_called_once()
     kwargs = mock_cls.call_args.kwargs
@@ -234,7 +240,7 @@ def test_create_llm_ollama_model():
 
 def test_create_llm_dashscope_model():
     """测试 create_llm 按 qwen3.7-flash 创建 DashScope 配置的 LLM"""
-    with patch("app.services.agent.agent_graph.ChatOpenAI") as mock_cls:
+    with patch("app.services.agent.capabilities.core_agent.llm.ChatOpenAI") as mock_cls:
         create_llm(streaming=False, model=settings.MODEL_DASHSCOPE_QWEN)
     mock_cls.assert_called_once()
     kwargs = mock_cls.call_args.kwargs
@@ -246,7 +252,7 @@ def test_create_llm_dashscope_model():
 
 def test_create_llm_dashscope_disables_thinking_for_title():
     """测试标题场景：关闭思考模式并限制 max_tokens，让标题秒回不被思考拖慢"""
-    with patch("app.services.agent.agent_graph.ChatOpenAI") as mock_cls:
+    with patch("app.services.agent.capabilities.core_agent.llm.ChatOpenAI") as mock_cls:
         create_llm(
             streaming=False,
             model=settings.MODEL_DASHSCOPE_QWEN,
@@ -261,7 +267,7 @@ def test_create_llm_dashscope_disables_thinking_for_title():
 
 def test_create_llm_ollama_ignores_thinking_params():
     """测试 Ollama 分支不受思考参数影响：不传 extra_body / max_tokens"""
-    with patch("app.services.agent.agent_graph.ChatOpenAI") as mock_cls:
+    with patch("app.services.agent.capabilities.core_agent.llm.ChatOpenAI") as mock_cls:
         create_llm(
             streaming=True,
             model=settings.MODEL_OLLAMA,
@@ -304,8 +310,10 @@ async def test_agent_node_thinking_switch():
     async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
         return Verdict(is_accurate=True, issues="")
 
-    with patch("app.services.agent.agent_graph.run_verdict", side_effect=fake_run_verdict):
-        with patch("app.services.agent.agent_graph.create_llm", side_effect=fake_create_llm):
+    with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
+        with patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm), \
+             patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm), \
+             patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm):
             async for _item in graph.astream(
                 {
                     "messages": [HumanMessage(content="hi")],
@@ -350,8 +358,10 @@ async def test_agent_node_thinking_defaults_off():
     async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
         return Verdict(is_accurate=True, issues="")
 
-    with patch("app.services.agent.agent_graph.run_verdict", side_effect=fake_run_verdict):
-        with patch("app.services.agent.agent_graph.create_llm", side_effect=fake_create_llm):
+    with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
+        with patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm), \
+             patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm), \
+             patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm):
             async for _item in graph.astream(
                 {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc"},
                 stream_mode="messages",
@@ -365,7 +375,7 @@ async def test_agent_node_thinking_defaults_off():
 
 def test_create_llm_default_falls_back_to_ollama():
     """测试未指定 model 时回退本地 Ollama（向后兼容）"""
-    with patch("app.services.agent.agent_graph.ChatOpenAI") as mock_cls:
+    with patch("app.services.agent.capabilities.core_agent.llm.ChatOpenAI") as mock_cls:
         create_llm(streaming=True)
     mock_cls.assert_called_once()
     kwargs = mock_cls.call_args.kwargs
@@ -395,8 +405,10 @@ async def test_astream_defaults_to_ollama_without_model():
     async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
         return Verdict(is_accurate=True, issues="")
 
-    with patch("app.services.agent.agent_graph.run_verdict", side_effect=fake_run_verdict):
-        with patch("app.services.agent.agent_graph.create_llm", side_effect=fake_create_llm):
+    with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
+        with patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm), \
+             patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm), \
+             patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm):
             async for _item in graph.astream(
                 {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc"},
                 stream_mode="messages",
@@ -507,8 +519,10 @@ async def test_verifier_accurate_ends_graph():
     graph = build_agent_graph(conv_repo)
     updates = []
     with (
-        patch("app.services.agent.agent_graph.run_verdict", side_effect=fake_run_verdict),
-        patch("app.services.agent.agent_graph.create_llm", side_effect=lambda streaming=True, model="", enable_thinking=True, max_tokens=None: agent_llm),
+        patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict),
+        patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=lambda streaming=True, model="", enable_thinking=True, max_tokens=None: agent_llm),
+        patch("app.services.agent.capabilities.title.create_llm", side_effect=lambda streaming=True, model="", enable_thinking=True, max_tokens=None: agent_llm),
+        patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=lambda streaming=True, model="", enable_thinking=True, max_tokens=None: agent_llm),
     ):
         async for mode, data in graph.astream(
             {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
@@ -538,8 +552,10 @@ async def test_verifier_degrades_to_pass_when_llm_fails():
     graph = build_agent_graph(conv_repo)
     updates = []
     with (
-        patch("app.services.agent.agent_graph.run_verdict", side_effect=boom_verdict),
-        patch("app.services.agent.agent_graph.create_llm", side_effect=lambda streaming=True, model="", enable_thinking=True, max_tokens=None: agent_llm),
+        patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=boom_verdict),
+        patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=lambda streaming=True, model="", enable_thinking=True, max_tokens=None: agent_llm),
+        patch("app.services.agent.capabilities.title.create_llm", side_effect=lambda streaming=True, model="", enable_thinking=True, max_tokens=None: agent_llm),
+        patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=lambda streaming=True, model="", enable_thinking=True, max_tokens=None: agent_llm),
     ):
         async for mode, data in graph.astream(
             {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
@@ -581,8 +597,10 @@ async def test_verifier_retry_then_pass_loops_through_agent():
     graph = build_agent_graph(conv_repo)
     updates = []
     with (
-        patch("app.services.agent.agent_graph.run_verdict", side_effect=fake_run_verdict),
-        patch("app.services.agent.agent_graph.create_llm", side_effect=fake_create_llm),
+        patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict),
+        patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm),
+        patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm),
+        patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm),
     ):
         async for mode, data in graph.astream(
             {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
@@ -623,8 +641,10 @@ async def test_verifier_fail_when_retries_exhausted():
     graph = build_agent_graph(conv_repo)
     updates = []
     with (
-        patch("app.services.agent.agent_graph.run_verdict", side_effect=fake_run_verdict),
-        patch("app.services.agent.agent_graph.create_llm", side_effect=fake_create_llm),
+        patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict),
+        patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm),
+        patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm),
+        patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm),
     ):
         async for mode, data in graph.astream(
             {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
@@ -679,8 +699,10 @@ async def test_rewrite_round_input_excludes_rejected_candidate():
 
     graph = build_agent_graph(conv_repo)
     with (
-        patch("app.services.agent.agent_graph.run_verdict", side_effect=fake_run_verdict),
-        patch("app.services.agent.agent_graph.create_llm", side_effect=fake_create_llm),
+        patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict),
+        patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm),
+        patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm),
+        patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm),
     ):
         async for mode, data in graph.astream(
             {"messages": [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content="我今天吃了8000块饭，对不？")],

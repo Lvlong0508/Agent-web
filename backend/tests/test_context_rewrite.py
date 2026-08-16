@@ -3,7 +3,7 @@
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from app.services.agent.context.agent import HISTORY_REFERENCE_MARKER
-from app.services.agent.context.rewrite import (
+from app.services.agent.capabilities.verifier.context.rewrite import (
     REWRITE_INSTRUCTION_MARKER,
     build_rewrite_messages,
 )

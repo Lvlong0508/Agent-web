@@ -219,10 +219,12 @@ async def test_chat_stream_records_interrupted_run():
         final_chunk.tool_call_chunks = None
 
         async def fake_astream(input, **kwargs):
-            # 先产出标题事件让 chat_stream 有可消费的 yield 点；若只产出 messages
-            # 累积块，chat_stream 会在 agent 阶段不 yield，直接跑完全程，
-            # 首次 __anext__ 就返回 [DONE]，无法模拟"消费一半后断开"
-            yield ("updates", {"generate_title": {"generated_title": "标题"}})
+            # 先产出标题 custom 事件让 chat_stream 有可消费的 yield 点（dispatch 后
+            # SSE 入队逐个 yield）；若只产出 messages 累积块，chat_stream 会在 agent
+            # 阶段不 yield，直接跑完全程，首次 __anext__ 就返回 [DONE]，无法模拟
+            # "消费一半后断开"
+            yield ("custom", {"type": "title.completed", "capability": "title",
+                              "status": "completed", "payload": {"title": "标题"}})
             yield ("messages", (final_chunk, {"langgraph_node": "agent"}))
             yield ("updates", {"agent": {"messages": [final_msg]}})
 
