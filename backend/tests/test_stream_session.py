@@ -3,7 +3,8 @@ import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
 from app.services.chat.reply_state import ReplyPhase
-from app.services.chat.stream_session import StreamSession
+from app.services.chat.sse_serializer import SSESerializer
+from app.services.chat.stream_session import StreamOrchestrator, StreamSession
 
 
 def test_initial_state_ready():
@@ -61,3 +62,43 @@ def test_collect_trace_ignores_missing_sections():
     session = StreamSession()
     session.collect_trace({"some_node": {"messages": []}})
     assert session.trace_messages == []
+
+
+def _make_orchestrator():
+    """构造一个可直接调用 _handle_messages 的编排器（graph 传 None 不触发）"""
+    session = StreamSession()
+    return StreamOrchestrator(graph=None, session=session, serializer=SSESerializer())
+
+
+def test_handle_messages_skips_non_agent_node():
+    """messages 流：非 agent 节点（如 generate_title）的输出不累积为回复"""
+    orch = _make_orchestrator()
+    chunk = AIMessage(content="标题")
+    orch._handle_messages((chunk, {"langgraph_node": "generate_title"}))
+    assert orch._session.reply_state.pending_reply == ""
+
+
+def test_handle_messages_skips_streaming_tool_call():
+    """messages 流：含 tool_call_chunks 的流式工具调用轮不累积为回复"""
+    orch = _make_orchestrator()
+    chunk = AIMessage(content="", tool_call_chunks=[{"name": "list_expenses"}])
+    orch._handle_messages((chunk, {"langgraph_node": "agent"}))
+    assert orch._session.reply_state.pending_reply == ""
+
+
+def test_handle_messages_skips_complete_tool_call():
+    """messages 流：含 tool_calls 的完整工具调用轮不累积为回复"""
+    orch = _make_orchestrator()
+    chunk = AIMessage(content="", tool_calls=[
+        {"name": "list_expenses", "args": {}, "id": "call_1", "type": "tool_call"},
+    ])
+    orch._handle_messages((chunk, {"langgraph_node": "agent"}))
+    assert orch._session.reply_state.pending_reply == ""
+
+
+def test_handle_messages_accumulates_text_token():
+    """messages 流：agent 节点的纯文本 token 累积为待定回复"""
+    orch = _make_orchestrator()
+    chunk = AIMessage(content="你好")
+    orch._handle_messages((chunk, {"langgraph_node": "agent"}))
+    assert orch._session.reply_state.pending_reply == "你好"
