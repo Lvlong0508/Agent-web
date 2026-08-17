@@ -13,6 +13,7 @@ import {
   DEFAULT_MODEL,
   THINKING_MODE_KEY,
   EMPTY_REPLY,
+  REWRITING,
   VOICE_UNSUPPORTED,
 } from './Text'
 import { useErrorModal } from '@/composables/useErrorModal'
@@ -226,8 +227,15 @@ export function useChat() {
     // 用 reactive 创建响应式消息对象：普通对象修改不触发 Vue 渲染，
     // 会导致 token 一直攒到流结束才一次性显示（整段出现）；
     // thinking 标记表示"等待首 token 的思考阶段"，正文出现即清除；
-    // thinkSeconds 为思考阶段已等待的秒数，用于"正在思考"倒计时提示
-    const assistantMsg = reactive({ role: 'assistant', content: '', thinking: true, thinkSeconds: 0 })
+    // thinkSeconds 为思考阶段已等待的秒数，用于"正在思考"倒计时提示；
+    // rewriting 标记区分当前是首轮思考还是重写轮（文案不同，均带动画倒计时）
+    const assistantMsg = reactive({
+      role: 'assistant',
+      content: '',
+      thinking: true,
+      thinkSeconds: 0,
+      rewriting: false,
+    })
     messages.value.push(assistantMsg)
 
     // 打字机渲染缓冲：token 先进队列，定时器每帧取出一个并入 content，
@@ -264,10 +272,12 @@ export function useChat() {
       },
       () => {
         // 验证未通过进入重写轮：清空已渲染的首轮残稿与待渲染队列，
-        // 复用"正在思考"样式（含点点动画与秒数倒计时），等 final 事件送达最终版
+        // 显示"正在组织语言"（thinking 样式，含点点动画与秒数倒计时），
+        // 与首轮"正在思考"文案区分，等 final 事件送达最终版
         pending.length = 0
         assistantMsg.content = ''
         assistantMsg.thinking = true
+        assistantMsg.rewriting = true
         assistantMsg.thinkSeconds = 0
         // 后端验证通过前不推首轮 token，首轮的倒计时定时器此刻仍存活；
         // 先清除旧实例再重启，否则旧定时器泄漏且倒计时每秒累加两次

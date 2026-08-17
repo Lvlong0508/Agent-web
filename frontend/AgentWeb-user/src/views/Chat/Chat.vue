@@ -6,7 +6,7 @@ import {
   SEARCH_PLACEHOLDER, SEARCH_EMPTY, AI_DISCLAIMER,
   JUMP_TO_BOTTOM, RECENT_CONVERSATIONS,
   MODEL_OLLAMA_FULL, MODEL_DASHSCOPE_FULL,
-  THINKING_MODE_LABEL, THINKING, LISTENING,
+  THINKING_MODE_LABEL, THINKING, REWRITING, LISTENING,
 } from './Text'
 import { useChat } from './Chat'
 import './Chat.css'
@@ -103,9 +103,10 @@ const activeModelFull = computed(() =>
             :key="i"
             :class="['msg-wrap', msg.role]"
           >
-            <!-- 思考阶段提示：含已等待秒数倒计时，仅流式首 token 到达前显示 -->
+            <!-- 思考阶段提示：含已等待秒数倒计时，仅流式首 token 到达前显示。
+                 重写轮（rewriting=true）显示"正在组织语言"，首轮显示"正在思考" -->
             <span v-if="msg.thinking" class="thinking">
-              {{ THINKING }}
+              {{ msg.rewriting ? REWRITING : THINKING }}
               <span class="dots"><span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></span>
               {{ msg.thinkSeconds }}s
             </span>
