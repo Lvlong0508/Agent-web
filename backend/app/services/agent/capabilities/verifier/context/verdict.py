@@ -105,7 +105,24 @@ def build_verdict_input(
     # 参考上下文：有 history_reference 用其完整精纯历史（含本轮 user），
     # 否则退化为只保留本轮用户问题
     if history_reference is not None:
-        reference = list(history_reference)
+        reference = []
+        for m in history_reference:
+            # 折叠历史块（name=history_reference）在质检语境下会误导聚焦：以 human
+            # role 呈现时，质检员把块内 <user>/<assistant> 标签误当成本轮提问与
+            # 候选断言（实测 bug：纯聊天问题被判"数据无来源"）。转成 SystemMessage
+            # 并标注"仅供背景"，让"本轮提问"成为唯一 human、"候选"成为唯一
+            # assistant，聚焦目标从结构上消除歧义
+            if (
+                isinstance(m, HumanMessage)
+                and getattr(m, "name", None) == HISTORY_REFERENCE_MARKER
+            ):
+                reference.append(
+                    SystemMessage(
+                        content=f"以下是历史对话（仅供背景理解，不含本轮提问）：\n{m.content}"
+                    )
+                )
+            else:
+                reference.append(m)
     elif current_user_msg is not None:
         reference = [current_user_msg]
     else:

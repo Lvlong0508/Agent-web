@@ -466,3 +466,47 @@ async def test_run_verdict_injects_tool_args_into_reduced_content():
     # 调用参数已拼进 content，质检员能看到查询条件
     assert "2026-08-15" in tool_msg.content
     assert "工具名" in tool_msg.content
+
+
+def test_build_verdict_input_presents_history_block_as_system():
+    """生产主路径：history_reference 里的折叠历史块（name=history_reference）必须
+    以 SystemMessage 呈现，而非 HumanMessage——否则质检员会把块内 <user>/<assistant>
+    标签内容误当成本轮提问与候选断言（实测 bug：把旧提问当"用户询问"、旧回复当
+    "助手断言"）。转 SystemMessage 后"本轮提问"成为唯一 human、"候选"成为唯一
+    assistant，聚焦目标从结构上无歧义"""
+    history_block = HumanMessage(
+        content=(
+            "<user>帮我看下我昨天到底花没花钱，应该花了100</user>\n"
+            "<assistant>根据查询，昨天（2026-08-16）并没有产生任何账单记录哦。</assistant>"
+        ),
+        name=HISTORY_REFERENCE_MARKER,
+    )
+    history = [
+        history_block,
+        HumanMessage(content="你有重写机制吗"),
+    ]
+    run_messages = [
+        HumanMessage(content="你有重写机制吗"),
+        AIMessage(content="您好，我是小励。我没有'重写机制'……"),
+    ]
+    reduced, serialized = build_verdict_input(run_messages, history_reference=history)
+
+    # 折叠块不再以 human role 呈现（质检员不会把它当成本轮对话）
+    assert not any(getattr(m, "name", None) == HISTORY_REFERENCE_MARKER for m in reduced)
+    block_msg = next(
+        m for m in reduced
+        if isinstance(m, SystemMessage) and "帮我看下我昨天到底花没花钱" in m.content
+    )
+    # 折叠块被标注为历史背景，明确"仅供背景、非本轮提问"
+    assert "历史对话" in block_msg.content
+    # 本轮提问成为唯一的 human 消息，候选仍是最后一条 assistant 消息
+    humans = [m for m in reduced if isinstance(m, HumanMessage)]
+    assert [m.content for m in humans] == ["你有重写机制吗"]
+    assert reduced[-1].type == "ai"
+    assert reduced[-1].content == "您好，我是小励。我没有'重写机制'……"
+    # 序列化副本（全链路记录）与质检输入一致：折叠块同样以 system role 呈现
+    serialized_block = next(
+        e for e in serialized
+        if e["role"] == "system" and "帮我看下我昨天到底花没花钱" in e["content"]
+    )
+    assert "历史对话" in serialized_block["content"]
