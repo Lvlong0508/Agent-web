@@ -2,7 +2,8 @@ import logging
 import time
 import uuid
 
-# LangChain 消息类型已不在本文件直接使用：序列化统一委托 events.serialize_message；
+# LangChain 消息类型已不在本文件直接使用：序列化统一委托
+# StreamSession.collect_trace（其内部调用 events.serialize_message）；
 # SystemMessage/HumanMessage 仅原内联首轮上下文构造用，已抽到 context 包
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -194,7 +195,9 @@ class ChatService:
                     "thinking": thinking,
                     # 精纯历史参考（含本轮 user）：来自 context 折叠后的
                     # langchain_messages[1:] = [历史参考块, 本轮问题]，与传给
-                    # agent 的记忆一致，无工具轮/重写轮噪音。供质检员理解上下文
+                    # agent 的记忆一致，无工具轮/重写轮噪音。
+                    # 供质检员理解上下文（如历史里用户说过自己叫小明），
+                    # 避免质检员只看本轮而误判基于记忆的回复
                     "history_reference": langchain_messages[1:],
                 },
                 config={"configurable": {"trace_id": trace_id, "thread_id": conv_id}},
