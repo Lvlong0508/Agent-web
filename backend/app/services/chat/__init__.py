@@ -9,5 +9,6 @@
 """
 
 from app.services.chat.reply_state import ReplyPhase, ReplyState
+from app.services.chat.sse_serializer import SSEEvent, SSESerializer
 
-__all__ = ["ReplyPhase", "ReplyState"]
+__all__ = ["ReplyPhase", "ReplyState", "SSEEvent", "SSESerializer"]
