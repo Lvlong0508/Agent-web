@@ -118,7 +118,7 @@ async def test_orchestrator_messages_custom_flow():
     rewrite_chunk.content = "最终版回复"
     rewrite_chunk.tool_call_chunks = []
 
-    async def fake_astream(input, **kwargs):
+    async def fake_astream(graph_input, **kwargs):
         yield ("messages", (first_chunk, {"langgraph_node": "agent"}))
         yield ("custom", {"type": "verifier.verdict", "capability": "verifier",
                           "status": "completed", "payload": {"result": "retry"}})
