@@ -7,3 +7,7 @@
 - stream_session：会话级可变状态 + 三流消费编排器
 本 __init__ 作为包出口，随各文件落地逐步追加重导出。
 """
+
+from app.services.chat.reply_state import ReplyPhase, ReplyState
+
+__all__ = ["ReplyPhase", "ReplyState"]
