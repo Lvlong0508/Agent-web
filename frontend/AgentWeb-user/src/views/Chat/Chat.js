@@ -13,7 +13,6 @@ import {
   DEFAULT_MODEL,
   THINKING_MODE_KEY,
   EMPTY_REPLY,
-  REWRITING,
   VOICE_UNSUPPORTED,
 } from './Text'
 import { useErrorModal } from '@/composables/useErrorModal'
@@ -265,10 +264,15 @@ export function useChat() {
       },
       () => {
         // 验证未通过进入重写轮：清空已渲染的首轮残稿与待渲染队列，
-        // 显示占位文案，等 final 事件送达最终版
+        // 复用"正在思考"样式（含点点动画与秒数倒计时），等 final 事件送达最终版
         pending.length = 0
-        assistantMsg.content = REWRITING
-        assistantMsg.thinking = false
+        assistantMsg.content = ''
+        assistantMsg.thinking = true
+        assistantMsg.thinkSeconds = 0
+        // 首轮的倒计时定时器已在首个 token 到达时清除（见 renderTimer），这里需重启
+        thinkTimer = setInterval(() => {
+          if (assistantMsg.thinking) assistantMsg.thinkSeconds += 1
+        }, 1000)
       },
       (text) => {
         // 验证通过收到最终版：清空占位，逐字放入渲染队列保持打字机效果。
