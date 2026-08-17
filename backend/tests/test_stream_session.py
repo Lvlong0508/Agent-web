@@ -1,5 +1,7 @@
-"""StreamSession 单元测试：token 累积与 trace 收集"""
+"""StreamSession 单元测试：token 累积与 trace 收集 + 编排器集成测试"""
 import pytest
+from unittest.mock import MagicMock
+
 from langchain_core.messages import AIMessage, ToolMessage
 
 from app.services.chat.reply_state import ReplyPhase
@@ -102,3 +104,54 @@ def test_handle_messages_accumulates_text_token():
     chunk = AIMessage(content="你好")
     orch._handle_messages((chunk, {"langgraph_node": "agent"}))
     assert orch._session.reply_state.pending_reply == "你好"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_messages_custom_flow():
+    """编排器：messages 流 token 累积 + custom 流 retry/pass 驱动状态机产出 SSE"""
+    session = StreamSession()
+    serializer = SSESerializer()
+    first_chunk = MagicMock()
+    first_chunk.content = "首次回复"
+    first_chunk.tool_call_chunks = []
+    rewrite_chunk = MagicMock()
+    rewrite_chunk.content = "最终版回复"
+    rewrite_chunk.tool_call_chunks = []
+
+    async def fake_astream(input, **kwargs):
+        yield ("messages", (first_chunk, {"langgraph_node": "agent"}))
+        yield ("custom", {"type": "verifier.verdict", "capability": "verifier",
+                          "status": "completed", "payload": {"result": "retry"}})
+        yield ("messages", (rewrite_chunk, {"langgraph_node": "agent"}))
+        yield ("custom", {"type": "verifier.verdict", "capability": "verifier",
+                          "status": "completed", "payload": {"result": "pass"}})
+
+    graph = MagicMock()
+    graph.astream = fake_astream
+
+    # 注入自定义 router：绕过 EventRouter，直接驱动 VerdictHandler 语义
+    from app.services.chat.handlers import VerdictHandler
+
+    class FakeRouter:
+        """测试替身：把 custom 事件交给 VerdictHandler 处理（模拟真实订阅链路）"""
+        def __init__(self, session):
+            self._handler = VerdictHandler(session.reply_state, "fallback", session.sse_events)
+
+        async def dispatch(self, event):
+            await self._handler.handle(event)
+
+    orchestrator = StreamOrchestrator(graph, session, serializer, router=FakeRouter(session))
+    sse_lines = []
+    async for sse in orchestrator.run(
+        {"messages": [], "conv_id": "c1", "user_id": "u1", "model": "m", "thinking": False,
+         "history_reference": []},
+        config={"configurable": {"trace_id": "t", "thread_id": "c1"}},
+    ):
+        sse_lines.append(sse)
+
+    assert sse_lines == [
+        'data: {"rewriting": true}\n\n',
+        'data: {"final": "最终版回复"}\n\n',
+    ]
+    assert session.reply_state.phase == ReplyPhase.FINAL
+    assert session.reply_state.full_response == "最终版回复"
