@@ -14,16 +14,21 @@ from app.models.message import Message
 from app.models.agent_run import AgentRun
 from app.repositories.agent_run_repo import AgentRunRepo
 # agent 模块公共 API 统一从包出口导入，避免深层路径散落
-# （首轮上下文组装与能力事件系统均已通过包出口暴露，见 spec 2026-08-17-agent-import-optimization-design）
 from app.services.agent import (
-    CapabilityEvent,
     EventRouter,
     REPLY_ON_VERIFY_FAILED,
     TITLE_COMPLETED_EVENT,
     VERIFIER_VERDICT_EVENT,
     build_agent_graph,
     build_agent_messages,
-    serialize_message,
+)
+# chat 流式会话子包：chat_stream 拆分出的可独立单测单元（spec 2026-08-17）
+from app.services.chat import (
+    SSESerializer,
+    StreamOrchestrator,
+    StreamSession,
+    TitleCompletedHandler,
+    VerdictHandler,
 )
 from app.tools import get_tools
 
@@ -127,14 +132,16 @@ class ChatService:
 
     async def chat_stream(self, conv_id: str, content: str, model: str, thinking: bool = False):
         """
-        核心流程：
+        核心流程（编排壳，仅生命周期管理）：
         1. 校验对话归属（当前请求用户，repo 按 user_id 过滤）
         2. 保存用户消息
-        3. 拉取完整历史
-        4. 运行 LangGraph agent 图（generate_title → agent），流式产出 token
-        5. 流结束后保存 assistant 消息
+        3. 拉取完整历史并组装首轮上下文
+        4. 建会话状态（StreamSession）与事件订阅（handler 类注入）
+        5. 委托 StreamOrchestrator 消费三流并逐字节 yield SSE
+        6. 流结束后保存 assistant 消息与全链路 run
 
-        thinking：是否开启深度思考（仅通义千问生效），透传给 agent 节点
+        thinking：是否开启深度思考（仅通义千问生效），透传给 agent 节点。
+        错误/中断兜底保留在本壳层（test_chat 断言依赖此结构）。
         """
         # 1. 校验对话归属：repo 查询条件带 user_id，越权直接查不到
         user_id = get_current_user_id_or_raise()
@@ -151,64 +158,35 @@ class ChatService:
         # 注入当前日期：agent 构造日期类工具参数（如"8月14日"账单）时才知道
         # 今天是哪年，不会幻觉成往年（实测用 2023 年查询当月账单致查空）
         today = time.strftime("%Y-%m-%d", time.localtime())
-        # 首轮上下文组装已抽到 context 包（纯函数，可独立单测）：
-        # 系统提示词前置（含日期）+ 历史折叠为 name 标记参考块（滑动窗口）+ 本轮问题独立
         langchain_messages = build_agent_messages(history, today)
 
-        # 4. 运行 agent 图，三流并行消费（规格 5.4）：
-        #    - "messages"：逐块产出 LLM token（打字机效果的来源）
-        #    - "updates"：每个节点返回后的完整 State 增量，仅用于全链路 trace
-        #      落库（自动捕获 tool_calls/tool_call_id），不解析业务字段
-        #    - "custom"：能力主动发出的事件，经 EventRouter 订阅后驱动业务行为
-        #      （标题推送、verifier 判定 pass/retry/fail）
-        full_response = ""  # 存储返回的最终回复
-        # 待定回复：当前轮（首轮或重写轮）累积的文本。验证通过前一律不推给前端，
-        # 否则不准确的首轮内容会被流式显示后才被替换（实测体验差）
-        pending_reply = ""
-        # 请求级追踪 ID：注入 config 透传给 emit 与落库，管理员凭它串联错误链
-        trace_id = uuid.uuid4().hex
+        # 4. 会话状态与事件订阅（替代原闭包 + nonlocal）
+        trace_id = uuid.uuid4().hex  # 请求级追踪 ID：注入 config 透传给 emit 与落库
         # 全链路收集：先放入本次用户请求，运行过程中从 updates 流逐节点追加。
         # 用户端 messages 集合保存精简视图（user/assistant），agent_runs
         # 保存完整回放（含工具调用参数与结果），两者各自独立落库
-        trace_messages: list[dict] = [{"role": "user", "content": content}]
-        run_recorded = False  # 标记是否已成功落库，finally 兜底判断
-        # 事件路由：按请求实例化（规格 5.3，严禁全局单例），订阅业务事件。
-        # SSE 事件先入队列，再由生成器逐个 yield，保证推送时机受控
+        session = StreamSession(trace_messages=[{"role": "user", "content": content}])
+        # SSE 事件先入领域事件队列，再由编排器逐个序列化 yield，保证推送时机受控
+        serializer = SSESerializer()
+        # 事件路由：按请求实例化（严禁全局单例），订阅业务事件。
+        # handler 经构造注入会话状态与输出队列，替代原内联闭包（可独立单测）
         router = EventRouter()
-        sse_queue: list[str] = []
-
-        def _enqueue(payload: dict) -> None:
-            """把待推送的 SSE 事件入队（非 async，仅供闭包内调用）"""
-            sse_queue.append(f"data: {json.dumps(payload, ensure_ascii=False)}\n\n")
-
-        async def on_title(event: CapabilityEvent) -> None:
-            """标题事件：非空才推前端侧边栏（避免无谓消息）"""
-            title = (event.get("payload") or {}).get("title")
-            if title:
-                _enqueue({"title": title})
-
-        async def on_verdict(event: CapabilityEvent) -> None:
-            """质检判定事件：retry 通知重写并清空待定回复；pass 推送最终版；fail 返回固定文案"""
-            # 本函数是 chat_stream 的嵌套闭包，改写外层局部变量必须声明 nonlocal，
-            # 否则 `pending_reply = ""` 会创建同名局部变量（Python 闭包赋值陷阱），
-            # 导致 retry 清空与 pass 读取都作用在错误变量上
-            nonlocal pending_reply, full_response
-            result = (event.get("payload") or {}).get("result")
-            if result == "retry":
-                pending_reply = ""
-                _enqueue({"rewriting": True})
-            elif result == "pass":
-                full_response = pending_reply
-                _enqueue({"final": full_response})
-            elif result == "fail":
-                full_response = REPLY_ON_VERIFY_FAILED
-                _enqueue({"final": full_response})
-
-        router.subscribe(TITLE_COMPLETED_EVENT, on_title)
-        router.subscribe(VERIFIER_VERDICT_EVENT, on_verdict)
+        router.subscribe(
+            TITLE_COMPLETED_EVENT,
+            TitleCompletedHandler(session.sse_events).handle,
+        )
+        router.subscribe(
+            VERIFIER_VERDICT_EVENT,
+            VerdictHandler(session.reply_state, REPLY_ON_VERIFY_FAILED, session.sse_events).handle,
+        )
+        orchestrator = StreamOrchestrator(self.graph, session, serializer, router=router)
 
         try:
-            async for mode, data in self.graph.astream(
+            # 5. 运行 agent 图：三流并行消费（规格 5.4）委托编排器完成
+            #    - "messages"：逐块产出 LLM token（打字机效果来源）
+            #    - "updates"：每节点 State 增量，仅用于全链路 trace 落库
+            #    - "custom"：能力主动发出的事件，经 EventRouter 分发驱动业务行为
+            async for sse_bytes in orchestrator.run(
                 {
                     "messages": langchain_messages,
                     "conv_id": conv_id,
@@ -217,102 +195,46 @@ class ChatService:
                     "thinking": thinking,
                     # 精纯历史参考（含本轮 user）：来自 context 折叠后的
                     # langchain_messages[1:] = [历史参考块, 本轮问题]，与传给
-                    # agent 的记忆一致，无工具轮/重写轮噪音。
-                    # 供质检员理解上下文（如历史里用户说过自己叫小明），
-                    # 避免质检员只看本轮而误判基于记忆的回复
+                    # agent 的记忆一致，无工具轮/重写轮噪音。供质检员理解上下文
                     "history_reference": langchain_messages[1:],
                 },
                 config={"configurable": {"trace_id": trace_id, "thread_id": conv_id}},
-                stream_mode=["messages", "updates", "custom"],
             ):
-                if mode == "messages":
-                    # data 是 (chunk, metadata)，chunk 是 AIMessageChunk
-                    chunk, metadata = data
-                    # 只接收 agent 节点产出的回复 token。generate_title 节点用非流式
-                    # ainvoke 调用 LLM，它的标题输出也会在 messages 流中弹出一个完整
-                    # chunk（metadata 标记为 generate_title）；不按节点过滤的话，
-                    # 标题会被当成回复 token 拼进气泡内容里
-                    if metadata.get("langgraph_node") != "agent":
-                        continue
-                    # 过滤工具调用轮：流式 chunk（AIMessageChunk）用 tool_call_chunks 判断；
-                    # 重写轮非流式产出的是完整 AIMessage，没有 tool_call_chunks 属性，改用
-                    # tool_calls 判断。显式判空：无工具调用时两者为 None/空列表；用
-                    # `if chunk.tool_call_chunks:` 会把 MagicMock（truthy）误判为有调用
-                    tool_call_chunks = getattr(chunk, "tool_call_chunks", None)
-                    tool_calls = getattr(chunk, "tool_calls", None)
-                    if (
-                        (tool_call_chunks is not None and len(tool_call_chunks) > 0)
-                        or (tool_calls is not None and len(tool_calls) > 0)
-                    ):
-                        continue
-                    token = chunk.content if isinstance(chunk.content, str) else ""
-                    if not token:
-                        continue
-                    # 验证通过前不推送 token：全部累积进待定回复，
-                    # 由 verifier 判定后通过 final 事件一次性推送（见 custom 分支）
-                    pending_reply += token
-                elif mode == "updates":
-                    # updates 仅用于全链路 trace：收集 agent 节点输出（含带 tool_calls
-                    # 的中间轮）、工具执行结果、质检输入与判定，不解析业务字段。
-                    # 业务行为一律从 custom 事件获取（规格 5.4，消除数据双源）
-                    for m in data.get("agent", {}).get("messages", []):
-                        trace_messages.append(serialize_message(m))
-                    for m in data.get("tools", {}).get("messages", []):
-                        trace_messages.append(serialize_message(m))
-                    verifier_input = data.get("verifier", {}).get("verdict_input")
-                    if verifier_input is not None:
-                        # 记录发给质检员的完整输入（role=input_verdict）：含 VERIFY_PROMPT
-                        # 与精简后的消息序列，便于事后评估质检效果（看它到底基于什么判定）
-                        trace_messages.append(
-                            {"role": "input_verdict", "content": verifier_input}
-                        )
-                    verifier_verdict = data.get("verifier", {}).get("verdict")
-                    if verifier_verdict is not None:
-                        # 记录质检员结构化判定（role=verdict，content 为 Verdict 字典）。
-                        # 至此 trace 完整覆盖：用户提问、agent 各轮回复、工具结果、质检输入、质检判定
-                        trace_messages.append(
-                            {"role": "verdict", "content": verifier_verdict}
-                        )
-                elif mode == "custom":
-                    # 业务事件：经 EventRouter 分发（标题推送、verifier 判定），
-                    # 分发完把队列里的 SSE 事件逐个 yield
-                    await router.dispatch(data)
-                    while sse_queue:
-                        yield sse_queue.pop(0)
+                yield sse_bytes
 
-            # 5. 保存 assistant 回复
+            # 6. 保存 assistant 回复（最终版来自 ReplyState.full_response）
             assistant_msg = Message(
-                conversation_id=conv_id, role="assistant", content=full_response
+                conversation_id=conv_id, role="assistant", content=session.reply_state.full_response
             )
             await self.msg_repo.create(assistant_msg)
 
             # 全链路落库（status=ok），携带 trace_id 供管理员串联错误链
-            await self._save_run(conv_id, user_id, model, "ok", trace_messages, trace_id=trace_id)
-            run_recorded = True
+            await self._save_run(conv_id, user_id, model, "ok", session.trace_messages, trace_id=trace_id)
+            session.run_recorded = True
         except Exception as e:
             # 运行异常：已收集到的消息序列仍落库并标记 error，便于开发者排查。
             # 注意此时用户消息已保存（在 try 之前），assistant 消息不保存
             # （没有最终回复），符合预期
             await self._save_run(
-                conv_id, user_id, model, "error", trace_messages,
+                conv_id, user_id, model, "error", session.trace_messages,
                 error=str(e), trace_id=trace_id,
             )
-            run_recorded = True
+            session.run_recorded = True
             # 用户通道错误分轨：只下发友好文案，不泄漏任何内部细节；
             # 管理员详情已在上方落库（error 字段 + trace_id 可检索）
             logger.exception("chat_stream 运行异常: conv=%s trace_id=%s", conv_id, trace_id)
-            yield f"data: {json.dumps({'error': USER_FRIENDLY_ERROR}, ensure_ascii=False)}\n\n"
+            yield serializer.serialize_error(USER_FRIENDLY_ERROR)
             raise
         finally:
             # 客户端中途断开（GeneratorExit/CancelledError 是 BaseException，
             # 不会触发上面的 except）时，用户消息已入库但 run 记录缺失：
             # 这里补记一条 error 记录，保持两个集合一致。
             # 落库失败由 _save_run 内部静默吞掉，不干扰生成器关闭流程
-            if not run_recorded:
+            if not session.run_recorded:
                 await self._save_run(
-                    conv_id, user_id, model, "error", trace_messages,
+                    conv_id, user_id, model, "error", session.trace_messages,
                     error="流被中断（客户端断开或取消）", trace_id=trace_id,
                 )
 
-        # 6. 发送结束标志
-        yield "data: [DONE]\n\n"
+        # 7. 发送结束标志
+        yield serializer.serialize_done()

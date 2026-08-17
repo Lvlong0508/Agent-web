@@ -56,11 +56,13 @@ class StreamOrchestrator:
     （这是 SSE 输出逐字节保真的前提，spec 风险表第 2 条）。
     """
 
-    def __init__(self, graph, session: StreamSession, serializer: SSESerializer):
-        """graph：已编译的 LangGraph（测试可注入 mock）；session：会话状态；serializer：SSE 序列化"""
+    def __init__(self, graph, session: StreamSession, serializer: SSESerializer, router=None):
+        """graph：已编译的 LangGraph（测试可注入 mock）；session：会话状态；
+        serializer：SSE 序列化；router：事件路由器（chat_service 注入，缺省不订阅）"""
         self._graph = graph
         self._session = session
         self._serializer = serializer
+        self._router = router
 
     async def run(self, graph_input: dict, config: dict):
         """驱动三流消费循环，逐条产出序列化后的 SSE 文本行。
@@ -86,12 +88,9 @@ class StreamOrchestrator:
                     yield self._serializer.serialize(self._session.sse_events.pop(0))
 
     async def _dispatch(self, event: dict) -> None:
-        """事件分发：按事件类型调用已注册的订阅 handler（EventRouter 封装于此）。"""
-        await self._router_dispatch(event)
-
-    # 占位：路由分派在 chat_service 通过 EventRouter 订阅实现，详见 Task 6
-    async def _router_dispatch(self, event: dict) -> None:
-        raise NotImplementedError("Task 6 接入 EventRouter 后替换此占位")
+        """事件分发：经 EventRouter 交给订阅 handler 驱动业务行为（标题/质检判定）"""
+        if self._router is not None:
+            await self._router.dispatch(event)
 
     def _handle_messages(self, data) -> None:
         """处理 messages 流：过滤非 agent 节点与工具调用轮，累积回复 token。
