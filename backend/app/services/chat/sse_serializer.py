@@ -14,7 +14,11 @@ from dataclasses import dataclass
 
 @dataclass
 class SSEEvent:
-    """领域事件模型：type 是语义名（title/rewriting/final/error），data 是待序列化载荷"""
+    """领域事件模型：type 是语义名（title/rewriting/final/error），data 是待序列化载荷。
+
+    type 供生产者（handlers）与未来分发逻辑使用，序列化层只消费 data 字段，
+    保持"业务语义名"与"协议载荷"的解耦。
+    """
     type: str
     data: dict
 

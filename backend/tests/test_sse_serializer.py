@@ -1,6 +1,4 @@
 """SSESerializer 单元测试：SSE 输出逐字节比对（协议保真的关键防线）"""
-import pytest
-
 from app.services.chat.sse_serializer import SSEEvent, SSESerializer
 
 
