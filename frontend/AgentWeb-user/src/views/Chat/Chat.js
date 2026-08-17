@@ -269,7 +269,9 @@ export function useChat() {
         assistantMsg.content = ''
         assistantMsg.thinking = true
         assistantMsg.thinkSeconds = 0
-        // 首轮的倒计时定时器已在首个 token 到达时清除（见 renderTimer），这里需重启
+        // 后端验证通过前不推首轮 token，首轮的倒计时定时器此刻仍存活；
+        // 先清除旧实例再重启，否则旧定时器泄漏且倒计时每秒累加两次
+        if (thinkTimer) { clearInterval(thinkTimer); thinkTimer = null }
         thinkTimer = setInterval(() => {
           if (assistantMsg.thinking) assistantMsg.thinkSeconds += 1
         }, 1000)
