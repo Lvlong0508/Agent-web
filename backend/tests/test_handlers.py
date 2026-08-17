@@ -69,3 +69,23 @@ async def test_verdict_unknown_result_noop():
     await handler.handle({"type": "verifier.verdict", "payload": {"result": "unknown"}})
     assert state.phase == ReplyPhase.PENDING
     assert out == []
+
+
+@pytest.mark.asyncio
+async def test_verdict_missing_payload_noop():
+    """payload 缺失：不报错、不转移状态、不产出事件（防御分支）"""
+    out = []
+    state = ReplyState()
+    handler = VerdictHandler(state, "fallback", out)
+    await handler.handle({"type": "verifier.verdict"})
+    assert state.phase == ReplyPhase.PENDING
+    assert out == []
+
+
+@pytest.mark.asyncio
+async def test_title_handler_missing_payload_skips():
+    """payload 缺失：标题视为空，不产出事件（防御分支）"""
+    out = []
+    handler = TitleCompletedHandler(out)
+    await handler.handle({"type": "title.completed"})
+    assert out == []

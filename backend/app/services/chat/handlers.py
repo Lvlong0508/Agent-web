@@ -16,7 +16,7 @@ from app.services.chat.sse_serializer import SSEEvent
 class TitleCompletedHandler:
     """处理 title.completed：标题非空才产出 title 事件（避免无谓消息）"""
 
-    def __init__(self, out: list):
+    def __init__(self, out: list[SSEEvent]):
         """out：领域事件输出队列（chat_stream 注入，与 StreamSession.sse_events 同对象）"""
         self._out = out
 
@@ -30,7 +30,7 @@ class TitleCompletedHandler:
 class VerdictHandler:
     """处理 verifier.verdict：按判定结果驱动 ReplyState 转移并产出对应事件"""
 
-    def __init__(self, state: ReplyState, fail_text: str, out: list):
+    def __init__(self, state: ReplyState, fail_text: str, out: list[SSEEvent]):
         """state：回复状态机引用（构造注入）；fail_text：fail 判定的固定文案；
         out：领域事件输出队列"""
         self._state = state
