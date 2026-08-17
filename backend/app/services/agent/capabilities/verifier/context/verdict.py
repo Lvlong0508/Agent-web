@@ -87,11 +87,19 @@ def build_verdict_input(
         if m is candidate:
             break
 
-    # 本轮工具结果 = 位置在本轮用户问题之后、候选回复之前的 ToolMessage；
-    # 历史轮次的工具结果（在 user_index 之前）会干扰质检，必须丢弃
+    # 本轮工具结果 = 位置在"最近一个被否决候选"之后的 ToolMessage：
+    # 重写轮的旧工具结果（首轮被否决周期产生，位于否决候选之前）会干扰质检、
+    # 并膨胀质检输入，必须丢弃；无被否决候选（普通单轮）时退化为 user_index
+    # 之后（丢弃历史轮次的工具结果）。被否决候选 = 除最终候选外最后一条
+    # "无工具调用"的 assistant（首轮已判错、被重写轮替换的旧回复）
+    rejected_index = -1
+    for idx, m in enumerate(dialogue_messages):
+        if isinstance(m, AIMessage) and not m.tool_calls and m is not candidate:
+            rejected_index = idx
+    tool_lower_bound = rejected_index if rejected_index >= 0 else user_index
     current_tools = [
         m for idx, m in enumerate(dialogue_messages)
-        if isinstance(m, ToolMessage) and idx > user_index
+        if isinstance(m, ToolMessage) and idx > tool_lower_bound
     ]
 
     # 参考上下文：有 history_reference 用其完整精纯历史（含本轮 user），

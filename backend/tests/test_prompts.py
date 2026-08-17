@@ -262,6 +262,33 @@ def test_rewrite_prompt_tells_agent_to_reorganize():
     assert "金额错误" in prompt
 
 
+def test_rewrite_prompt_uses_result_when_tool_already_called():
+    """重写轮内 agent 已调过工具（has_tool_result=True）时，指令必须改为
+    "基于已有工具结果作答、不要重复调用工具"；否则模型拿到工具结果后仍会被
+    "必须先重新调用工具"逼着重复调用（实测 bug：重写轮同参数工具调用两次）"""
+    prompt = build_rewrite_prompt("金额错误", has_tool_result=True)
+    # 不再强制重新调用工具：明确基于已有结果作答、禁止重复调用
+    assert "基于上方工具结果" in prompt
+    assert "不要重复调用工具" in prompt
+    # 仍需保留：重置前提、质检员身份、禁止道歉、反馈注入
+    assert "已被我清空" in prompt
+    assert "质检员" in prompt
+    assert "不要道歉" in prompt
+    assert "金额错误" in prompt
+    # 与未调工具形态不同：未调工具版本要求先调用工具，已调版本不再强制
+    no_tool_prompt = build_rewrite_prompt("金额错误")
+    assert "必须先重新调用工具" in no_tool_prompt
+    assert "必须先重新调用工具" not in prompt
+
+
+def test_verify_prompt_marks_current_question_as_last_human():
+    """质检提示词必须说明：本轮用户提问是最后一条 human 消息（独立呈现），
+    不要到折叠的历史会话块里寻找本轮提问；否则质检员会去历史块找问题，
+    导致校验对象定位错误（用户实测：本轮用户已从历史会话提取为独立 human）"""
+    assert "最后一条 human" in VERIFY_PROMPT
+    assert "历史" in VERIFY_PROMPT
+
+
 def test_reply_on_verify_failed_is_fixed_message():
     """验证失败超限后返回固定文案"""
     assert REPLY_ON_VERIFY_FAILED == "小励出现了点问题，请稍后再尝试吧"

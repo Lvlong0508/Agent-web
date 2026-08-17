@@ -93,3 +93,49 @@ def test_build_rewrite_messages_keeps_current_with_history_block():
     # 历史块被剔除，本轮问题保留为第一条 human
     assert not any(getattr(m, "name", None) == HISTORY_REFERENCE_MARKER for m in result)
     assert result[1].content == "本轮问题：我的账单多少？"
+
+
+def test_build_rewrite_messages_rewrite_round_drops_first_round():
+    """重写轮已调工具（末条 ToolMessage）且存在首轮被否决候选时：只保留
+    [系统 + 本轮用户问题 + 重写轮内工具调用/结果 + 指令]，剔除首轮候选与
+    首轮工具轮；否则模型重复调工具、消息链膨胀直至质检输入截断（实测 bug）"""
+    messages = [
+        SystemMessage(content=SYSTEM_PROMPT),
+        HumanMessage(content="我昨天到底花没花钱？"),
+        AIMessage(
+            content="",
+            tool_calls=[{
+                "name": "list_expenses_by_date",
+                "args": {"start_date": "2026-08-16", "end_date": "2026-08-16"},
+                "id": "call_1",
+                "type": "tool_call",
+            }],
+        ),
+        ToolMessage(content='{"total": 0}', name="list_expenses_by_date", tool_call_id="call_1"),
+        AIMessage(content="昨天没有支出"),  # 首轮被否决候选
+        AIMessage(
+            content="",
+            tool_calls=[{
+                "name": "list_expenses_by_date",
+                "args": {"start_date": "2026-08-16", "end_date": "2026-08-16"},
+                "id": "call_2",
+                "type": "tool_call",
+            }],
+        ),
+        ToolMessage(content='{"total": 0}', name="list_expenses_by_date", tool_call_id="call_2"),
+    ]
+    result = build_rewrite_messages(messages, "昨天是否有支出请核实")
+
+    # 首轮被否决候选被剔除（不在任何消息 content 中）
+    assert "昨天没有支出" not in [m.content for m in result]
+    # 结构 = 系统 + 本轮用户问题 + 重写轮内工具调用 + 重写轮工具结果 + 指令
+    assert [type(m) for m in result] == [
+        SystemMessage, HumanMessage, AIMessage, ToolMessage, HumanMessage,
+    ]
+    assert result[1].content == "我昨天到底花没花钱？"
+    # 重写轮内的工具调用与结果完整保留（结果不丢，模型有据可依）
+    assert result[2].tool_calls[0]["id"] == "call_2"
+    assert result[3].tool_call_id == "call_2"
+    # 指令自适应：已调工具 -> 基于结果作答、不要求再调；且指令带标记
+    assert "不要重复调用工具" in result[4].content
+    assert result[4].name == REWRITE_INSTRUCTION_MARKER

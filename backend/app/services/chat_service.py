@@ -158,7 +158,7 @@ class ChatService:
         # 4. 运行 agent 图，三流并行消费（规格 5.4）：
         #    - "messages"：逐块产出 LLM token（打字机效果的来源）
         #    - "updates"：每个节点返回后的完整 State 增量，仅用于全链路 trace
-        #      落库（自动捕获 tool_calls/tool_call_id/response_metadata），不解析业务字段
+        #      落库（自动捕获 tool_calls/tool_call_id），不解析业务字段
         #    - "custom"：能力主动发出的事件，经 EventRouter 订阅后驱动业务行为
         #      （标题推送、verifier 判定 pass/retry/fail）
         full_response = ""  # 存储返回的最终回复

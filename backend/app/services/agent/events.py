@@ -41,23 +41,14 @@ def _current_trace_id() -> str | None:
         return None
 
 
-def _json_safe(obj):
-    """把不可 JSON 序列化的值（datetime、自定义对象等）递归转成可序列化形式"""
-    if isinstance(obj, dict):
-        return {k: _json_safe(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_json_safe(v) for v in obj]
-    if obj is None or isinstance(obj, (str, int, float, bool)):
-        return obj
-    return str(obj)
-
-
 def serialize_message(msg) -> dict:
     """把 LangChain 消息转成可落库的普通 dict（全链路 trace 的标准格式）。
 
     设计要点（规格 5.2 + 两轮评审落地）：
     - role 映射：ai→assistant / human→user / tool→tool / 其余原样
-    - AIMessage 保留 tool_calls（args 若是 JSON 字符串则转为 dict）与 response_metadata
+    - AIMessage 保留 tool_calls（args 若是 JSON 字符串则转为 dict）
+    - 刻意丢弃 response_metadata（token_usage/model_name/finish_reason 等
+      元数据噪音）：全链路追踪去冗余，只留业务可读的回复内容与工具调用
     - ToolMessage 保留 tool_call_id 与 name（追溯每条工具结果由哪次调用产生）
     - 禁止把 BaseMessage 对象直接放进事件 payload，必须先经本函数序列化
     """
@@ -91,8 +82,6 @@ def serialize_message(msg) -> dict:
             # 全链路审计才能精确还原"某次调用 → 其结果"的关联（规格 5.2 审计要求）
             calls.append({"name": tc.get("name"), "args": args, "id": tc.get("id")})
         entry["tool_calls"] = calls
-        if getattr(msg, "response_metadata", None):
-            entry["response_metadata"] = _json_safe(msg.response_metadata)
     return entry
 
 

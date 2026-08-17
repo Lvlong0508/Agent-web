@@ -253,6 +253,47 @@ def test_build_verdict_input_serializes_tool_name_and_args():
     assert "2026-08-31" in tools[1]["content"]
 
 
+def test_build_verdict_input_keeps_only_latest_round_tool_result_after_rewrite():
+    """重写轮场景：质检输入只保留最新一轮（重写轮）的工具结果，
+    首轮被否决候选所在周期的工具结果必须丢弃——否则质检员被旧数据干扰，
+    且输入膨胀直至结构化输出截断降级（实测 bug：重写轮同参数重复调工具）"""
+    messages = [
+        HumanMessage(content="我昨天花了吗？"),
+        AIMessage(
+            content="",
+            tool_calls=[{
+                "id": "call_1",
+                "name": "list_expenses_by_date",
+                "args": {"start_date": "2026-08-16", "end_date": "2026-08-16"},
+            }],
+        ),
+        ToolMessage(content='{"total": 0}', name="list_expenses_by_date", tool_call_id="call_1"),
+        AIMessage(content="昨天没有支出"),  # 首轮被否决候选
+        AIMessage(
+            content="",
+            tool_calls=[{
+                "id": "call_2",
+                "name": "list_expenses_by_date",
+                "args": {"start_date": "2026-08-16", "end_date": "2026-08-16"},
+            }],
+        ),
+        ToolMessage(content='{"total": 0}', name="list_expenses_by_date", tool_call_id="call_2"),
+        AIMessage(content="昨天（08-16）没有支出"),  # 重写轮最终候选
+    ]
+    reduced, serialized = build_verdict_input(messages)
+
+    # 只保留重写轮的工具结果（call_2），首轮工具结果（call_1）被丢弃
+    tools = [m for m in reduced if isinstance(m, ToolMessage)]
+    assert len(tools) == 1
+    assert tools[0].tool_call_id == "call_2"
+    # 候选回复是重写轮最终版
+    assert reduced[-1].content == "昨天（08-16）没有支出"
+    # 序列化输入同样只含重写轮工具结果（供全链路 input_verdict 复盘）
+    serialized_tools = [m for m in serialized if m["role"] == "tool"]
+    assert len(serialized_tools) == 1
+    assert serialized_tools[0]["name"] == "list_expenses_by_date"
+
+
 def test_build_verdict_input_includes_history_reference():
     """传 history_reference 时，质检输入包含完整精纯历史（含用户自我介绍等背景），
     使质检员能理解基于记忆的回复（如称呼用户名），不会被误判"""

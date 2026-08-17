@@ -37,6 +37,33 @@ def test_serialize_message_plain_human():
     assert out["content"] == "你好"
 
 
+def test_serialize_message_ai_drops_response_metadata():
+    """全链路追踪去冗余：AIMessage 序列化必须丢弃 response_metadata
+    （token_usage/model_name/finish_reason 等元数据噪音），只保留内容与
+    工具调用（用户实测：追踪过重、冗余）。
+    注意 response_metadata 的记录分支在 tool_calls 块内，须带 tool_calls
+    才走到真实代码路径（中间工具调用轮才带 response_metadata）"""
+    msg = AIMessage(
+        content="让我查一下",
+        tool_calls=[{
+            "name": "list_expenses",
+            "args": {"page": 1},
+            "id": "call_1",
+            "type": "tool_call",
+        }],
+        response_metadata={
+            "token_usage": {"completion_tokens": 86, "prompt_tokens": 1798},
+            "model_name": "qwen3.7-flash",
+            "finish_reason": "tool_calls",
+        },
+    )
+    out = serialize_message(msg)
+    assert "response_metadata" not in out
+    assert out["role"] == "assistant"
+    assert out["content"] == "让我查一下"
+    assert out["tool_calls"][0]["name"] == "list_expenses"
+
+
 def test_serialize_message_ai_with_args_json_string():
     """tool_calls 的 args 是 JSON 字符串时应转为 dict（deepseek 评审落地）"""
     # langchain_core 1.4.8 的 pydantic 校验要求 args 必须是 dict，无法直接构造字符串 args，
