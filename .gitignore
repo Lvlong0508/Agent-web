@@ -14,7 +14,6 @@ AGENTS.md
 
 # backend
 backend/.env
-backend/.env.example
 
 # 学习图片
 LangChain与LangGraph对比图.png
