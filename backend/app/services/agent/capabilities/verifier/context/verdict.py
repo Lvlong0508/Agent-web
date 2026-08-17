@@ -159,8 +159,9 @@ def build_verdict_input(
                 tool_args_by_id[tc["id"]] = tc.get("args")
 
     # 序列化完整输入（含前置 VERIFY_PROMPT），供全链路记录与日志。
-    # tool 消息额外带 name（工具名）与 args（调用参数）：同一工具多次调用、
-    # 参数不同导致结果不同，补上这两项才能追溯每条结果由哪次调用产生。
+    # tool 消息不另记 name/args 字段：工具名与调用参数已注入 content（与质检员
+    # 所见一致），重复记录会造成落库冗余（实测：input_verdict 里 content 已含
+    # "工具名：xxx，调用参数：xxx"，还额外存 name/args）。
     # 前置参考消息顺序：VERIFY_PROMPT -> 当前日期 -> 可用工具清单
     serialized = [
         {"role": "system", "content": VERIFY_PROMPT},
@@ -171,15 +172,10 @@ def build_verdict_input(
     for m in reduced:
         entry = {"role": getattr(m, "type", "unknown"), "content": m.content}
         if isinstance(m, ToolMessage):
-            if m.name:
-                entry["name"] = m.name
-            args = tool_args_by_id.get(m.tool_call_id)
-            if args is not None:
-                entry["args"] = args
             # 落库 content 与质检员实际所见保持一致：OpenAI 格式丢弃 ToolMessage
             # 的 name/args 字段，质检员只看 content，序列化副本若用原始 content
             # 复盘时"input_verdict 与真实输入不一致"会误导排查，这里同样注入
-            entry["content"] = f"{_call_info_prefix(m, args)}\n返回结果：{m.content}"
+            entry["content"] = f"{_call_info_prefix(m, tool_args_by_id.get(m.tool_call_id))}\n返回结果：{m.content}"
         serialized.append(entry)
     # 本轮工具结果注入调用参数：把 name+args 拼进 content（OpenAI 丢弃
     # ToolMessage 的 name/args 字段），质检员才能核对查询条件是否与用户要求一致

@@ -221,19 +221,14 @@ def test_build_verdict_input_serializes_tool_name_and_args():
     ]
     reduced, serialized = build_verdict_input(messages)
 
-    # 序列化输入里按 role/content 记录，tool 消息额外带 name 与 args
+    # 序列化输入里按 role/content 记录；工具名与调用参数已注入 content
+    # （与质检员所见一致），不再冗余记录 name/args 字段（实测：内容重复）
     tools = [m for m in serialized if m["role"] == "tool"]
     assert len(tools) == 2
-    assert tools[0]["name"] == "list_expenses_by_date"
-    assert tools[0]["args"] == {
-        "start_date": "2026-08-01",
-        "end_date": "2026-08-15",
-    }
-    assert tools[1]["name"] == "list_expenses_by_date"
-    assert tools[1]["args"] == {
-        "start_date": "2026-08-15",
-        "end_date": "2026-08-31",
-    }
+    assert "name" not in tools[0]
+    assert "args" not in tools[0]
+    assert "name" not in tools[1]
+    assert "args" not in tools[1]
 
     # 精简消息里的 tool 消息同样注入调用参数：OpenAI 格式丢弃 name/args 字段，
     # 只有拼进 content 质检员才看得到查询条件，才能核对"条件正确+返回空=无记录"
@@ -288,10 +283,12 @@ def test_build_verdict_input_keeps_only_latest_round_tool_result_after_rewrite()
     assert tools[0].tool_call_id == "call_2"
     # 候选回复是重写轮最终版
     assert reduced[-1].content == "昨天（08-16）没有支出"
-    # 序列化输入同样只含重写轮工具结果（供全链路 input_verdict 复盘）
+    # 序列化输入同样只含重写轮工具结果（供全链路 input_verdict 复盘），
+    # 工具名在 content 中可查、不再冗余记录 name 字段
     serialized_tools = [m for m in serialized if m["role"] == "tool"]
     assert len(serialized_tools) == 1
-    assert serialized_tools[0]["name"] == "list_expenses_by_date"
+    assert "list_expenses_by_date" in serialized_tools[0]["content"]
+    assert "name" not in serialized_tools[0]
 
 
 def test_build_verdict_input_includes_history_reference():
