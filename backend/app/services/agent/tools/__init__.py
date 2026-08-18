@@ -5,9 +5,9 @@ get_tools(session_factory) 汇总全部工具，供 agent 图构建时绑定。
 
 from collections.abc import Callable
 
-from app.tools.arithmetic_tool import build_arithmetic_tools
-from app.tools.expense_tool import build_expense_tools
-from app.tools.time_tool import build_time_tools
+from app.services.agent.tools.arithmetic_tool import build_arithmetic_tools
+from app.services.agent.tools.expense_tool import build_expense_tools
+from app.services.agent.tools.time_tool import build_time_tools
 
 
 def get_tools(session_factory: Callable) -> list:

@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.tools.arithmetic_tool import build_arithmetic_tools
+from app.services.agent.tools.arithmetic_tool import build_arithmetic_tools
 
 
 @pytest.mark.asyncio

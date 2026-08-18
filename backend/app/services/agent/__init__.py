@@ -9,6 +9,7 @@
 """
 
 from app.services.agent.llm import create_llm
+from app.services.agent.tools import get_tools
 from app.services.agent.capabilities.core_agent.node import should_continue
 from app.services.agent.capabilities.core_agent.state import AgentState
 from app.services.agent.capabilities.title.events import TITLE_COMPLETED_EVENT
@@ -39,6 +40,7 @@ __all__ = [
     "build_agent_graph",
     "build_agent_messages",
     "create_llm",
+    "get_tools",
     "route_after_verify",
     "serialize_message",
     "should_continue",

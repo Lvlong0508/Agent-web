@@ -2,7 +2,7 @@
 
 设计对齐 expense_tool：用 build_time_tools() 工厂返回工具列表，新增时间类
 工具（如取日期、取星期）时，只需在该函数里追加一个 @tool 函数，无需改动
-调用方（tools/__init__.py 的 get_tools 直接展开该列表）。
+调用方（services/agent/tools/__init__.py 的 get_tools 直接展开该列表）。
 
 时间工具是纯函数，不依赖数据库/会话。统一用 async 定义：同步工具在
 LangGraph 中会被放进线程池执行，而本项目用 contextvar 传递用户身份，

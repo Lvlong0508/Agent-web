@@ -15,9 +15,9 @@ from app.middleware.mysql import Base, SessionLocal, engine
 from app.models.expense import Expense
 from app.services.agent import Verdict, build_agent_graph
 from app.services.chat_service import ChatService
-from app.tools import get_tools
-from app.tools.expense_tool import build_expense_tools
-from app.tools.time_tool import build_time_tools
+from app.services.agent import get_tools
+from app.services.agent.tools.expense_tool import build_expense_tools
+from app.services.agent.tools.time_tool import build_time_tools
 from tests.conftest import delete_expenses_after, get_max_expense_id
 
 EXPECTED_TOOL_NAMES = {

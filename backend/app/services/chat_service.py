@@ -30,7 +30,7 @@ from app.services.chat import (
     TitleCompletedHandler,
     VerdictHandler,
 )
-from app.tools import get_tools
+from app.services.agent import get_tools
 
 # 模块级日志器：chat_stream 运行异常时记录含 trace_id 的上下文，便于检索
 logger = logging.getLogger(__name__)
