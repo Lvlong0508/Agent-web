@@ -1,6 +1,7 @@
 # backend/tests/test_skills.py
 """技能机制测试：SkillLoader 扫描解析、read_skill 工具、索引文本格式"""
 
+from app.services.agent.skills import get_skills_index_prompt
 from app.services.agent.skills.loader import SkillLoader
 
 # 合法 SKILL.md：frontmatter 含 name/description，正文在 --- 之后
@@ -97,3 +98,13 @@ def test_loader_skips_file_with_bad_encoding(tmp_path):
     loader = SkillLoader(tmp_path)
     # 好技能正常加载，坏编码技能被跳过
     assert loader.skill_names() == ["accounting-expert"]
+
+
+def test_get_skills_index_prompt_uses_singleton(monkeypatch, tmp_path):
+    """get_skills_index_prompt 透传单例 loader 的索引文本（monkeypatch 换 loader）"""
+    _write_skill(tmp_path, "accounting-expert", VALID_SKILL)
+    test_loader = SkillLoader(tmp_path)
+    # 替换包级单例：生产环境单例指向 settings.SKILLS_DIR，测试注入临时目录
+    monkeypatch.setattr("app.services.agent.skills.loader", test_loader)
+    prompt = get_skills_index_prompt()
+    assert "**accounting-expert**" in prompt
