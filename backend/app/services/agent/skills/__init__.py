@@ -15,6 +15,9 @@ from app.services.agent.skills.loader import SkillLoader
 _skills_path = Path(settings.SKILLS_DIR)
 if not _skills_path.is_absolute():
     _skills_path = settings.BASE_DIR / _skills_path
+# 注意：这里把单例实例绑定为 loader 变量，与子模块 loader.py 同名——
+# "from ...skills import loader" 拿到的是本实例而非模块（Python 属性链语义），
+# tool.py 的 read_skill 正是依赖这一行为；测试 monkeypatch 的目标也对应实例
 loader = SkillLoader(_skills_path)
 
 
