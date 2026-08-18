@@ -25,6 +25,7 @@ from app.services.agent.context.agent import build_agent_messages
 from app.services.agent.events import CapabilityEvent, EventRouter, serialize_message
 from app.services.agent.prompts import REPLY_ON_VERIFY_FAILED
 from app.services.agent.registry import build_agent_graph
+from app.services.agent.skills import get_skills_index_prompt
 
 __all__ = [
     "AgentState",
@@ -40,6 +41,7 @@ __all__ = [
     "build_agent_graph",
     "build_agent_messages",
     "create_llm",
+    "get_skills_index_prompt",  # 技能索引工厂：chat_service 经包出口注入
     "get_tools",
     "route_after_verify",
     "serialize_message",
