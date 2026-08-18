@@ -507,3 +507,41 @@ def test_build_verdict_input_presents_history_block_as_system():
         if e["role"] == "system" and "帮我看下我昨天到底花没花钱" in e["content"]
     )
     assert "历史对话" in serialized_block["content"]
+
+
+def test_build_verdict_input_excludes_read_skill_tool_result():
+    """质检输入必须排除 read_skill 的 ToolMessage：技能正文是流程知识不是数据
+    依据，混入会让质检员把 skill 里的文字当"数据来源"误判（spec 2026-08-18）。
+    候选回复若基于技能给出建议，质检只核对数据部分是否有真实工具来源"""
+    messages = [
+        HumanMessage(content="帮我分析下我的消费习惯"),
+        AIMessage(
+            content="",
+            tool_calls=[{
+                "id": "call_1",
+                "name": "read_skill",
+                "args": {"name": "accounting-expert"},
+            }],
+        ),
+        # read_skill 返回的技能正文：知识内容，不应进质检
+        ToolMessage(
+            content="[技能 accounting-expert]\n# 记账专家\n## 目标\n提供记账知识。",
+            name="read_skill",
+            tool_call_id="call_1",
+        ),
+        AIMessage(content="根据记账专家技能，建议按餐饮/交通/购物分类"),
+    ]
+    reduced, serialized = build_verdict_input(messages)
+
+    # 精简输入中不含 read_skill 的 ToolMessage
+    assert not any(isinstance(m, ToolMessage) for m in reduced)
+    # 序列化输入同样不含技能正文
+    assert not any(m["role"] == "tool" for m in serialized)
+    # 数据类账单工具的 ToolMessage 仍保留（不被误排除）
+    messages_with_real_tool = [
+        HumanMessage(content="我花了多少钱？"),
+        ToolMessage(content='{"total": 2}', name="list_expenses", tool_call_id="call_2"),
+        AIMessage(content="你有 2 笔支出"),
+    ]
+    reduced2, _ = build_verdict_input(messages_with_real_tool)
+    assert any(isinstance(m, ToolMessage) and m.name == "list_expenses" for m in reduced2)
