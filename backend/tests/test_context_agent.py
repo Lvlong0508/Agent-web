@@ -95,3 +95,14 @@ def test_build_agent_messages_exact_window_boundary():
     assert ref_block.content.count("<user>") == HISTORY_WINDOW_SIZE
     assert "第0条" in ref_block.content  # 边界时首条也保留
     assert result[-1].content == "本轮问题"
+
+
+def test_build_agent_messages_injects_skills_index():
+    """传入技能索引时，首条 SystemMessage 包含技能清单；缺省不追加"""
+    history = [FakeMessage(role="user", content="你好")]
+    with_index = build_agent_messages(history, "2026-08-15", "## 可用技能\n\n- **x**: y")
+    assert "## 可用技能" in with_index[0].content
+    assert "**x**" in with_index[0].content
+
+    without_index = build_agent_messages(history, "2026-08-15")
+    assert "可用技能" not in without_index[0].content
