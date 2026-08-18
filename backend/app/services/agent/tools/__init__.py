@@ -5,6 +5,7 @@ get_tools(session_factory) 汇总全部工具，供 agent 图构建时绑定。
 
 from collections.abc import Callable
 
+from app.services.agent.skills.tool import build_skill_tools
 from app.services.agent.tools.arithmetic_tool import build_arithmetic_tools
 from app.services.agent.tools.expense_tool import build_expense_tools
 from app.services.agent.tools.time_tool import build_time_tools
@@ -13,11 +14,12 @@ from app.services.agent.tools.time_tool import build_time_tools
 def get_tools(session_factory: Callable) -> list:
     """汇总所有 agent 工具：传入会话工厂，工具在被调用时自行开一个新会话。
 
-    账单工具需要会话工厂（每次调用开新会话访问 MySQL）；时间/算术工具是
+    账单工具需要会话工厂（每次调用开新会话访问 MySQL）；时间/算术/技能工具是
     纯函数不依赖会话，但其工厂签名与账单不同（无需参数），这里直接展开它们的列表。
     """
     return (
         build_expense_tools(session_factory)
         + build_time_tools()
         + build_arithmetic_tools()
+        + build_skill_tools()
     )
