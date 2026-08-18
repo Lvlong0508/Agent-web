@@ -22,6 +22,20 @@ def test_build_system_prompt_injects_today():
     assert "今天" in prompt
 
 
+def test_build_system_prompt_injects_skills_index():
+    """传入技能索引时追加到 system prompt 末尾；缺省时不追加任何内容"""
+    base = build_system_prompt("2026-08-15")
+    skills_index = "## 可用技能\n\n- **accounting-expert**: 记账知识"
+    prompt = build_system_prompt("2026-08-15", skills_index)
+    # 基础内容完整保留（日期仍在）
+    assert "2026-08-15" in prompt
+    # 技能索引追加在末尾
+    assert prompt.endswith(skills_index)
+    assert "## 可用技能" in prompt
+    # 缺省空串不追加
+    assert "可用技能" not in base
+
+
 def test_build_title_prompt_injects_messages():
     """测试标题提示词模板能拼入对话内容"""
     prompt = build_title_prompt("human: 你好")
