@@ -1,8 +1,11 @@
 # backend/tests/test_skills.py
 """技能机制测试：SkillLoader 扫描解析、read_skill 工具、索引文本格式"""
 
+import pytest
+
 from app.services.agent.skills import get_skills_index_prompt
 from app.services.agent.skills.loader import SkillLoader
+from app.services.agent.skills.tool import build_skill_tools
 
 # 合法 SKILL.md：frontmatter 含 name/description，正文在 --- 之后
 VALID_SKILL = """---
@@ -108,3 +111,34 @@ def test_get_skills_index_prompt_uses_singleton(monkeypatch, tmp_path):
     monkeypatch.setattr("app.services.agent.skills.loader", test_loader)
     prompt = get_skills_index_prompt()
     assert "**accounting-expert**" in prompt
+
+
+@pytest.mark.asyncio
+async def test_read_skill_returns_body(monkeypatch, tmp_path):
+    """read_skill 返回 [技能 name]\n正文"""
+    _write_skill(tmp_path, "accounting-expert", VALID_SKILL)
+    test_loader = SkillLoader(tmp_path)
+    # 替换工具闭包引用的包级 loader 单例
+    monkeypatch.setattr("app.services.agent.skills.tool.loader", test_loader)
+    tools = {t.name: t for t in build_skill_tools()}
+    result = await tools["read_skill"].ainvoke({"name": "accounting-expert"})
+    assert "[技能 accounting-expert]" in result
+    assert "# 记账专家" in result
+
+
+@pytest.mark.asyncio
+async def test_read_skill_unknown_name_returns_friendly_error(monkeypatch, tmp_path):
+    """未知名返回友好错误提示，不抛异常（降级）"""
+    _write_skill(tmp_path, "accounting-expert", VALID_SKILL)
+    test_loader = SkillLoader(tmp_path)
+    monkeypatch.setattr("app.services.agent.skills.tool.loader", test_loader)
+    tools = {t.name: t for t in build_skill_tools()}
+    result = await tools["read_skill"].ainvoke({"name": "no-such-skill"})
+    assert "未找到技能" in result
+    assert "no-such-skill" in result
+
+
+def test_build_skill_tools_returns_read_skill():
+    """工具工厂只返回 read_skill 一个工具"""
+    tools = build_skill_tools()
+    assert [t.name for t in tools] == ["read_skill"]
