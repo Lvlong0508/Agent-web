@@ -84,3 +84,16 @@ def test_loader_index_prompt_format(tmp_path):
     assert "read_skill" in prompt
     assert "**accounting-expert**" in prompt
     assert "记账知识" in prompt
+
+
+def test_loader_skips_file_with_bad_encoding(tmp_path):
+    """非 UTF-8 编码的 SKILL.md 只跳过该技能，不影响其他技能加载
+    （降级契约：坏文件绝不阻塞整个扫描）"""
+    _write_skill(tmp_path, "good", VALID_SKILL)
+    bad_dir = tmp_path / "bad-encoding"
+    bad_dir.mkdir(parents=True)
+    # 写入 GBK 编码文件（UTF-8 解码必然失败）
+    (bad_dir / "SKILL.md").write_bytes("---\nname: 乱码\n---\n正文".encode("gbk"))
+    loader = SkillLoader(tmp_path)
+    # 好技能正常加载，坏编码技能被跳过
+    assert loader.skill_names() == ["accounting-expert"]

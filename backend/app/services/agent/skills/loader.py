@@ -32,7 +32,12 @@ class SkillLoader:
             md_file = child / "SKILL.md"
             if not md_file.is_file():
                 continue
-            skill = self._parse_skill_md(md_file.read_text(encoding="utf-8"))
+            try:
+                # 读+解析整体保护：单个技能文件读取失败（如编码异常）只跳过该技能，
+                # 不得让整个扫描崩溃（spec 降级契约：坏技能不阻塞好技能与主流程）
+                skill = self._parse_skill_md(md_file.read_text(encoding="utf-8"))
+            except (UnicodeDecodeError, OSError):
+                continue
             if skill:
                 self._index.append(skill)
 
