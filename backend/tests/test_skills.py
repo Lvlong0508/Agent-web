@@ -142,3 +142,12 @@ def test_build_skill_tools_returns_read_skill():
     """工具工厂只返回 read_skill 一个工具"""
     tools = build_skill_tools()
     assert [t.name for t in tools] == ["read_skill"]
+
+
+def test_singleton_loader_scans_real_skills_dir():
+    """包级单例扫描真实的 backend/skills 目录：预置技能能被加载（集成验证）"""
+    from app.services.agent.skills import loader as singleton
+    # 单例的索引包含预置技能（若 backend/skills 目录被 .env 重定向则跳过）
+    if not singleton.skills_dir.exists():
+        pytest.skip("skills 目录不存在（SKILLS_DIR 被重定向），跳过集成断言")
+    assert "accounting-expert" in singleton.skill_names()
