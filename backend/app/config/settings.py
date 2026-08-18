@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import ClassVar
 
 from pydantic_settings import BaseSettings
@@ -6,6 +7,13 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # 单用户模式：所有聊天数据的固定归属 ID
     DEFAULT_USER_ID: str = "anonymous"
+
+    # backend 根目录：settings.py 在 backend/app/config/，parents[2] 即 backend/
+    # （parents[0]=config, [1]=app, [2]=backend，实测验证）
+    BASE_DIR: ClassVar[Path] = Path(__file__).resolve().parents[2]
+
+    # Skill 根目录配置：相对 BASE_DIR 的路径，可经 .env 调整
+    SKILLS_DIR: str = "skills"
 
     # MongoDB 连接配置
     MONGODB_URI: str
