@@ -3,7 +3,7 @@
 from langgraph.graph import END, START, StateGraph
 
 from app.config.settings import settings
-from app.services.agent.capabilities.core_agent.llm import create_llm
+from app.services.agent.llm import create_llm
 from app.services.agent.capabilities.core_agent.state import AgentState
 from app.services.agent.capabilities.title.events import TITLE_COMPLETED_EVENT
 from app.services.agent.capabilities.title.node import _generate_title_if_empty

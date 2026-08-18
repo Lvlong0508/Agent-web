@@ -69,6 +69,20 @@ def test_unknown_model_raises():
         create_llm(model="qwen3.7-flsh")  # 拼错的选择名
 
 
+def test_unknown_ollama_prefix_model_raises():
+    """ollama 前缀但未注册的选择名也抛 ValueError（厂商内模型分发兜底）"""
+    with pytest.raises(ValueError):
+        create_llm(model="ollama-unknown")
+
+
+def test_dashscope_thinking_enabled_omits_extra_body():
+    """enable_thinking 默认开启时不传 extra_body（反向断言）"""
+    with patch("app.services.agent.llm.dashscope.ChatOpenAI") as mock_cls:
+        create_llm(streaming=True, model=settings.MODEL_DASHSCOPE_QWEN)
+    kwargs = mock_cls.call_args.kwargs
+    assert "extra_body" not in kwargs
+
+
 def test_default_falls_back_to_ollama():
     """未指定 model 时回退本地 Ollama（向后兼容）"""
     with patch("app.services.agent.llm.ollama.ChatOpenAI") as mock_cls:

@@ -6,7 +6,7 @@ from typing import Literal
 from langgraph.graph import END
 
 from app.config.settings import settings
-from app.services.agent.capabilities.core_agent.llm import create_llm
+from app.services.agent.llm import create_llm
 from app.services.agent.capabilities.verifier.context.verdict import (
     Verdict,
     build_verdict_input,

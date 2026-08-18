@@ -8,7 +8,7 @@
   从本出口依赖它们而保留，非出口泄漏内部实现
 """
 
-from app.services.agent.capabilities.core_agent.llm import create_llm
+from app.services.agent.llm import create_llm
 from app.services.agent.capabilities.core_agent.node import should_continue
 from app.services.agent.capabilities.core_agent.state import AgentState
 from app.services.agent.capabilities.title.events import TITLE_COMPLETED_EVENT
