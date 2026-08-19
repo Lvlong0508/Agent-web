@@ -138,6 +138,19 @@ def make_planner_node(tools: list | None = None):
                 "planner_reason": "schema_invalid",
                 "messages": [],
             }
+        except Exception as e:
+            # LLM 调用本身抛出的异常（网络错误 / openai 403 无权限 / 配额等）：
+            # 与 verifier 的 except Exception 降级同理，planner 必须对主流程透明。
+            # 实测：planner 模型无 API 权限时 openai 抛 PermissionDeniedError，
+            # 若不捕获会直接把 500 抛给整条请求，违背"规划失败不影响回复"的设计
+            logger.warning("planner LLM 调用失败，降级跳过：%s", e)
+            emit(PLANNER_FAILED_EVENT, "planner", {"reason": "llm_error"}, status="failed")
+            return {
+                "planner_result": None,
+                "planner_status": "failed",
+                "planner_reason": "llm_error",
+                "messages": [],
+            }
 
         # 清洗工具名：planner 可能输出近似名，容错解析后丢弃非法名（spec 7.2）
         cleaned_tools = sanitize_required_tools(plan.required_tools, valid_names)

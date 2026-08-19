@@ -131,3 +131,24 @@ async def test_planner_node_schema_invalid_degrades():
     assert out["planner_status"] == "failed"
     assert out["planner_reason"] == "schema_invalid"
     assert out["planner_result"] is None
+
+
+@pytest.mark.asyncio
+async def test_planner_node_llm_error_degrades():
+    """LLM 调用抛任意异常（如 openai 403）：降级为跳过，不向主流程抛错。
+
+    验证器已有 except Exception 降级；planner 同样必须保证"任何失败对主流程
+    透明"，否则一次 403 会直接拖垮整条请求（实测崩溃）"""
+    tools = []
+    planner = make_planner_node(tools)
+    state = {"messages": [HumanMessage(content="记一笔")]}
+
+    class FakeLLM:
+        async def ainvoke(self, *args, **kwargs):
+            raise RuntimeError("模拟 LLM 调用失败（如 API 403）")
+
+    out = await planner(state, llm=FakeLLM())
+    assert out["planner_status"] == "failed"
+    assert out["planner_reason"] == "llm_error"
+    assert out["planner_result"] is None
+    assert out["messages"] == []  # 不注入规划消息
