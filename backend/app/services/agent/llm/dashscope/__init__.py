@@ -1,4 +1,7 @@
-"""DashScope 厂商子包：通义千问 LLM 的构造工厂（厂商内模型级分发）"""
+"""DashScope 厂商子包：通义千问 LLM 的构造工厂。
+
+模型名校验由上层注册表承担（未知 alias 抛 ValueError），本函数不再做白名单。
+"""
 
 from langchain_openai import ChatOpenAI
 
@@ -6,8 +9,8 @@ from app.config.settings import settings
 
 
 def create_dashscope_llm(
+    model: str,                        # 真实 API 模型名（来自注册表条目）
     streaming: bool = True,
-    model: str = "",
     enable_thinking: bool = True,
     max_tokens: int | None = None,
 ) -> ChatOpenAI:
@@ -19,9 +22,6 @@ def create_dashscope_llm(
         速度敏感、不需要深度推理的场景。
     max_tokens：限制输出 token 数，防止思考/回答超长拖慢响应。
     """
-    # 厂商内模型分发：当前只认领 qwen3.7-flash 一个选择名
-    if model != settings.MODEL_DASHSCOPE_QWEN:
-        raise ValueError(f"未知的 DashScope 模型选择名: {model!r}")
     kwargs = {"streaming": streaming}
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
@@ -29,7 +29,7 @@ def create_dashscope_llm(
     if not enable_thinking:
         kwargs["extra_body"] = {"enable_thinking": False}
     return ChatOpenAI(
-        model=settings.DASHSCOPE_MODEL,
+        model=model,
         base_url=settings.DASHSCOPE_BASE_URL,
         api_key=settings.DASHSCOPE_API_KEY,
         **kwargs,

@@ -1,6 +1,6 @@
 """技能机制包出口：模块级 loader 单例与索引文本工厂。
 
-- loader：进程内单例，构造时扫描 settings.SKILLS_DIR 一次并缓存（运行期只读）
+- loader：进程内单例，构造时扫描 agent_settings.SKILLS_DIR 一次并缓存（运行期只读）
 - get_skills_index_prompt()：供 chat_service 注入 system prompt 的 L0 索引文本。
   用函数而非直接暴露 loader，调用方不依赖单例内部结构，测试可 monkeypatch
   包级 loader 变量以注入临时技能目录
@@ -8,13 +8,13 @@
 
 from pathlib import Path
 
-from app.config.settings import settings
+from app.config.agent_settings import agent_settings
 from app.services.agent.skills.loader import SkillLoader
 
-# 进程内单例：路径由 settings 配置（相对 BASE_DIR 或绝对），换位置只需改 .env
-_skills_path = Path(settings.SKILLS_DIR)
+# 进程内单例：路径由 AgentSettings 配置（相对 BASE_DIR 或绝对），换位置只需改 .env
+_skills_path = Path(agent_settings.SKILLS_DIR)
 if not _skills_path.is_absolute():
-    _skills_path = settings.BASE_DIR / _skills_path
+    _skills_path = agent_settings.BASE_DIR / _skills_path
 # 注意：这里把单例实例绑定为 loader 变量，与子模块 loader.py 同名——
 # "from ...skills import loader" 拿到的是本实例而非模块（Python 属性链语义），
 # tool.py 的 read_skill 正是依赖这一行为；测试 monkeypatch 的目标也对应实例

@@ -2,7 +2,7 @@
 
 from langgraph.graph import END, START, StateGraph
 
-from app.config.settings import settings
+from app.config.agent_settings import agent_settings
 from app.services.agent.llm import create_llm
 from app.services.agent.capabilities.core_agent.state import AgentState
 from app.services.agent.capabilities.title.events import TITLE_COMPLETED_EVENT
@@ -36,8 +36,8 @@ class TitleCapability(AgentCapability):
                     conv,
                     state["messages"],
                     create_llm(
+                        alias=state.get("model") or agent_settings.MODEL_OLLAMA,
                         streaming=False,
-                        model=state.get("model") or settings.MODEL_OLLAMA,
                         # 标题生成关闭思考模式并限制输出长度：通义千问开启思考时
                         # 标题请求要等十几秒思考完才返回，会拖到回复之后才刷新；
                         # 关闭后秒回，保证"先刷新标题，再输出内容"

@@ -5,6 +5,7 @@ from langchain_core.messages import SystemMessage
 from pydantic import ValidationError
 
 from app.auth import current_user_id
+from app.config.agent_settings import agent_settings
 from app.config.settings import settings
 from app.models.conversation import Conversation
 from app.schemas.chat import SendMessageRequest
@@ -113,7 +114,7 @@ async def test_chat_stream_respects_current_user(chat_service):
 
         tokens = []
         async for chunk in chat_service.chat_stream(
-            "c1", "hello", settings.MODEL_DASHSCOPE_QWEN
+            "c1", "hello", agent_settings.MODEL_DASHSCOPE_QWEN
         ):
             tokens.append(chunk)
         assert any('"final": "你好"' in t for t in tokens)
@@ -151,7 +152,7 @@ async def test_chat_stream_saves_messages(chat_service):
     chat_service.graph.astream = fake_astream
 
     tokens = []
-    async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_DASHSCOPE_QWEN):
+    async for chunk in chat_service.chat_stream("c1", "hello", agent_settings.MODEL_DASHSCOPE_QWEN):
         tokens.append(chunk)
 
     # 验证通过后经 final 事件收到完整回复，以及结束标志 [DONE]
@@ -160,7 +161,7 @@ async def test_chat_stream_saves_messages(chat_service):
     # user 和 assistant 消息各保存一次
     assert chat_service.msg_repo.create.call_count == 2
     # model 透传到 agent 图的输入
-    assert graph_input["model"] == settings.MODEL_DASHSCOPE_QWEN
+    assert graph_input["model"] == agent_settings.MODEL_DASHSCOPE_QWEN
 
 
 @pytest.mark.asyncio
@@ -190,7 +191,7 @@ async def test_chat_stream_prepends_system_prompt(chat_service):
     chat_service.graph.astream = fake_astream
 
     tokens = []
-    async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_OLLAMA):
+    async for chunk in chat_service.chat_stream("c1", "hello", agent_settings.MODEL_OLLAMA):
         tokens.append(chunk)
 
     # 注入到图的消息流：第一条是系统提示词，随后才是用户消息
@@ -229,7 +230,7 @@ async def test_chat_stream_pushes_generated_title(chat_service):
     chat_service.graph.astream = fake_astream
 
     tokens = []
-    async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_DASHSCOPE_QWEN):
+    async for chunk in chat_service.chat_stream("c1", "hello", agent_settings.MODEL_DASHSCOPE_QWEN):
         tokens.append(chunk)
 
     # 标题事件与最终版回复都应推送
@@ -261,7 +262,7 @@ async def test_chat_stream_ignores_empty_title_update(chat_service):
     chat_service.graph.astream = fake_astream
 
     tokens = []
-    async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_DASHSCOPE_QWEN):
+    async for chunk in chat_service.chat_stream("c1", "hello", agent_settings.MODEL_DASHSCOPE_QWEN):
         tokens.append(chunk)
 
     # 不应出现标题事件，最终版经 final 事件给出
@@ -295,7 +296,7 @@ async def test_chat_stream_filters_title_token(chat_service):
     chat_service.graph.astream = fake_astream
 
     tokens = []
-    async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_DASHSCOPE_QWEN):
+    async for chunk in chat_service.chat_stream("c1", "hello", agent_settings.MODEL_DASHSCOPE_QWEN):
         tokens.append(chunk)
 
     # 最终版只应含 agent 节点的回复，标题 token 不得混入
@@ -324,7 +325,7 @@ async def test_chat_stream_passes_thinking(chat_service):
     chat_service.graph = MagicMock()
     chat_service.graph.astream = fake_astream
 
-    async for _ in chat_service.chat_stream("c1", "hello", settings.MODEL_DASHSCOPE_QWEN, True):
+    async for _ in chat_service.chat_stream("c1", "hello", agent_settings.MODEL_DASHSCOPE_QWEN, True):
         pass
 
     # 思考开关已透传给图（true），由 agent 节点据此决定是否开启思考模式
@@ -333,10 +334,10 @@ async def test_chat_stream_passes_thinking(chat_service):
 
 def test_send_message_request_thinking_defaults_false():
     """测试请求体 thinking 默认关闭，且可显式开启"""
-    req = SendMessageRequest(content="hi", model=settings.MODEL_DASHSCOPE_QWEN)
+    req = SendMessageRequest(content="hi", model=agent_settings.MODEL_DASHSCOPE_QWEN)
     assert req.thinking is False
     req_on = SendMessageRequest(
-        content="hi", model=settings.MODEL_DASHSCOPE_QWEN, thinking=True
+        content="hi", model=agent_settings.MODEL_DASHSCOPE_QWEN, thinking=True
     )
     assert req_on.thinking is True
 
@@ -375,7 +376,7 @@ async def test_chat_stream_pushes_rewriting_event(chat_service):
     chat_service.graph.astream = fake_astream
 
     tokens = []
-    async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_DASHSCOPE_QWEN):
+    async for chunk in chat_service.chat_stream("c1", "hello", agent_settings.MODEL_DASHSCOPE_QWEN):
         tokens.append(chunk)
 
     # rewriting 事件已推送
@@ -413,7 +414,7 @@ async def test_chat_stream_pushes_final_after_rewrite(chat_service):
     chat_service.graph.astream = fake_astream
 
     tokens = []
-    async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_DASHSCOPE_QWEN):
+    async for chunk in chat_service.chat_stream("c1", "hello", agent_settings.MODEL_DASHSCOPE_QWEN):
         tokens.append(chunk)
 
     # final 事件携带最终版完整文本
@@ -451,7 +452,7 @@ async def test_chat_stream_handles_rewrite_round_emitting_full_aimessage(chat_se
     chat_service.graph.astream = fake_astream
 
     tokens = []
-    async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_DASHSCOPE_QWEN):
+    async for chunk in chat_service.chat_stream("c1", "hello", agent_settings.MODEL_DASHSCOPE_QWEN):
         tokens.append(chunk)
 
     # 不崩溃且最终版正确推送并落库
@@ -477,7 +478,7 @@ async def test_chat_stream_fail_returns_fixed_message(chat_service):
     chat_service.graph.astream = fake_astream
 
     tokens = []
-    async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_DASHSCOPE_QWEN):
+    async for chunk in chat_service.chat_stream("c1", "hello", agent_settings.MODEL_DASHSCOPE_QWEN):
         tokens.append(chunk)
 
     assert any(f'"final": "{REPLY_ON_VERIFY_FAILED}"' in t for t in tokens)
@@ -508,7 +509,7 @@ async def test_chat_stream_error_returns_friendly_message_and_records(chat_servi
     # chat_stream 在 yield 友好文案后会重新抛出原异常（供 API 层返回错误状态），
     # 故用 pytest.raises 捕获，同时仍能收集到已下发的 SSE 片段
     with pytest.raises(ConnectionError):
-        async for chunk in chat_service.chat_stream("c1", "hello", settings.MODEL_OLLAMA):
+        async for chunk in chat_service.chat_stream("c1", "hello", agent_settings.MODEL_OLLAMA):
             tokens.append(chunk)
 
     # 用户通道：只有友好文案，绝不包含内部错误信息。
@@ -541,7 +542,7 @@ async def test_chat_stream_config_carries_trace_id(chat_service):
     chat_service.graph = MagicMock()
     chat_service.graph.astream = fake_astream
 
-    async for _ in chat_service.chat_stream("c1", "hello", settings.MODEL_OLLAMA):
+    async for _ in chat_service.chat_stream("c1", "hello", agent_settings.MODEL_OLLAMA):
         pass
 
     trace_id = captured["configurable"]["trace_id"]

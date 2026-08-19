@@ -139,3 +139,23 @@ def test_build_rewrite_messages_rewrite_round_drops_first_round():
     # 指令自适应：已调工具 -> 基于结果作答、不要求再调；且指令带标记
     assert "不要重复调用工具" in result[4].content
     assert result[4].name == REWRITE_INSTRUCTION_MARKER
+
+
+def test_build_rewrite_messages_excludes_planner_marker():
+    """重写轮应过滤规划 SystemMessage（name=planner），避免过时规划约束重新推理"""
+    from app.services.agent.capabilities.planner.node import PLANNER_MARKER
+
+    messages = [
+        SystemMessage(content=SYSTEM_PROMPT),
+        SystemMessage(
+            content="【执行规划参考】意图：QUERY ...",
+            name=PLANNER_MARKER,
+        ),
+        HumanMessage(content="查一下上周账单"),
+        AIMessage(content="被否决的候选"),
+    ]
+    result = build_rewrite_messages(messages, "金额错误")
+    assert not any(getattr(m, "name", None) == PLANNER_MARKER for m in result)
+    # 系统提示词仍保留
+    assert result[0].type == "system"
+    assert SYSTEM_PROMPT in result[0].content

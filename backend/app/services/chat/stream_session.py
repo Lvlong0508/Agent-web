@@ -41,6 +41,13 @@ class StreamSession:
             self.trace_messages.append(serialize_message(m))
         for m in updates.get("tools", {}).get("messages", []):
             self.trace_messages.append(serialize_message(m))
+        # planner 节点产出的规划消息（SystemMessage, name=planner）：全链路记录
+        # 应含规划参考，便于复盘意图识别与路线规划是否合理。落库时 role 标为
+        # "planner"（而非 system），让查记录时一眼区分规划消息与普通系统提示词
+        for m in updates.get("planner", {}).get("messages", []):
+            entry = serialize_message(m)
+            entry["role"] = "planner"
+            self.trace_messages.append(entry)
         verifier_input = updates.get("verifier", {}).get("verdict_input")
         if verifier_input is not None:
             self.trace_messages.append({"role": "input_verdict", "content": verifier_input})

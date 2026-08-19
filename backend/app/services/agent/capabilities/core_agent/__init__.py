@@ -6,6 +6,7 @@ from langgraph.prebuilt import ToolNode
 from app.services.agent.capabilities.core_agent.node import make_agent_node, should_continue
 from app.services.agent.capabilities.core_agent.node_names import (
     CORE_NODE_AGENT,
+    CORE_NODE_PLANNER,
     CORE_NODE_TOOLS,
     CORE_NODE_VERIFIER,
 )
@@ -48,10 +49,9 @@ class CoreAgentCapability(AgentCapability):
         return [CORE_NODE_AGENT, CORE_NODE_TOOLS]
 
     def connect(self, builder: StateGraph) -> None:
-        # 主循环入口：agent 推理节点是回复主路径的起点，必须从 START 进入。
-        # （原单体图中 START→agent 并行边，拆分后由 core_agent 认领；
-        #   title 能力认领 START→generate_title 旁路边）
-        builder.add_edge(START, CORE_NODE_AGENT)
+        # 主循环入口：先进入 planner（意图识别/规划），再由 planner 进入 agent。
+        # （原 START→agent 改为 START→planner；planner→agent 由 planner 能力认领）
+        builder.add_edge(START, CORE_NODE_PLANNER)
         # 工具执行完必须回到 agent 再跑一轮：agent 拿到工具结果后生成最终回复。
         # 若不连这条边，图在 tools 节点后直接结束，最终回复永远不会产出，
         # 且工具调用轮次里 LLM 输出的中间说明文字会被误收集成回复

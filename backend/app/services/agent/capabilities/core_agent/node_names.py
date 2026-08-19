@@ -7,3 +7,4 @@ connect() 引用的节点必须已注册，真实存在性校验由 LangGraph co
 CORE_NODE_AGENT = "agent"          # Agent 推理节点（主循环核心锚点）
 CORE_NODE_TOOLS = "tools"          # 工具执行节点
 CORE_NODE_VERIFIER = "verifier"    # 质检节点
+CORE_NODE_PLANNER = "planner"      # 规划节点（意图识别 + 路线规划，插在 agent 前）
