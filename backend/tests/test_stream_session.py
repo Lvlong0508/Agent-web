@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import MagicMock
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 
 from app.services.chat.reply_state import ReplyPhase
 from app.services.chat.sse_serializer import SSESerializer
@@ -57,6 +57,19 @@ def test_collect_trace_verifier():
     session.collect_trace(updates)
     assert session.trace_messages[0] == {"role": "input_verdict", "content": [{"role": "user", "content": "hello"}]}
     assert session.trace_messages[1] == {"role": "verdict", "content": {"result": "pass", "reason": "OK"}}
+
+
+def test_collect_trace_planner():
+    """updates 流收集：planner 节点产出的规划 SystemMessage 进 trace（含 name 标记）"""
+    session = StreamSession()
+    updates = {
+        "planner": {
+            "messages": [SystemMessage(content="【执行规划参考】...", name="planner")],
+        }
+    }
+    session.collect_trace(updates)
+    assert session.trace_messages[0]["role"] == "system"
+    assert session.trace_messages[0]["content"] == "【执行规划参考】..."
 
 
 def test_collect_trace_ignores_missing_sections():
