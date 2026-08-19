@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.config.settings import settings
+from app.config.agent_settings import agent_settings
 
 
 # -------------------- 请求体 --------------------
@@ -12,8 +12,8 @@ from app.config.settings import settings
 class SendMessageRequest(BaseModel):
     """发送消息请求体"""
     content: str
-    # 模型选择名：仅允许两个合法值，未传时缺省本地 Ollama（与图内回退设计一致）
-    model: Literal[settings.MODEL_OLLAMA, settings.MODEL_DASHSCOPE_QWEN] = settings.MODEL_OLLAMA
+    # 模型选择名：仅允许注册表里的前端可选模型，未传时缺省本地 Ollama（与图内回退设计一致）
+    model: Literal[agent_settings.MODEL_OLLAMA, agent_settings.MODEL_DASHSCOPE_QWEN] = agent_settings.MODEL_OLLAMA
     # 深度思考开关（仅通义千问生效）：默认关闭，加快回复流式输出；开启后更深入但更慢
     thinking: bool = False
 

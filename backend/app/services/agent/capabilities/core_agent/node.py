@@ -5,7 +5,7 @@
 
 from typing import Literal
 
-from app.config.settings import settings
+from app.config.agent_settings import agent_settings
 from app.services.agent.llm import create_llm
 from app.services.agent.capabilities.core_agent.state import AgentState
 # 重写轮上下文助手属于 verifier 能力（重写指令由质检反馈驱动），故依赖
@@ -36,8 +36,8 @@ def make_agent_node(tools):
         feedback = state.get("verification_feedback", "")
         is_rewrite = bool(feedback)
         llm = create_llm(
+            alias=state.get("model") or agent_settings.MODEL_OLLAMA,
             streaming=not is_rewrite,
-            model=state.get("model") or settings.MODEL_OLLAMA,
             enable_thinking=state.get("thinking", False),
         )
         # 只在绑定了工具时才 bind_tools：空列表绑定对不支持工具的消息模型会报错

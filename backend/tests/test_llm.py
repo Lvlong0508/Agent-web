@@ -1,94 +1,66 @@
-"""llm 包测试：验证 create_llm 厂商级粗分发 + 厂商内模型级分发"""
+"""llm 包测试：验证 create_llm 按 alias 查模型注册表分发"""
 
 from unittest.mock import patch
 
 import pytest
 
+from app.config.agent_settings import agent_settings
 from app.config.settings import settings
 from app.services.agent.llm import create_llm
 
 
-def test_ollama_model():
-    """按 ollama-qwen3.5 选择名创建 Ollama 配置的 LLM"""
+def test_create_llm_dashscope_alias():
+    """按注册表 dashscope 条目构造（主模型 qwen3.7-flash，思考默认开）"""
+    with patch("app.services.agent.llm.dashscope.ChatOpenAI") as mock_cls:
+        create_llm(alias="qwen3.7-flash")
+    mock_cls.assert_called_once()
+    kwargs = mock_cls.call_args.kwargs
+    assert kwargs["model"] == "qwen3.7-flash"
+    assert kwargs["base_url"] == settings.DASHSCOPE_BASE_URL
+    assert kwargs["api_key"] == settings.DASHSCOPE_API_KEY
+    assert "extra_body" not in kwargs  # 思考开启时不传
+
+
+def test_create_llm_ollama_alias():
+    """按注册表 ollama 条目构造（本地模型）"""
     with patch("app.services.agent.llm.ollama.ChatOpenAI") as mock_cls:
-        create_llm(streaming=True, model=settings.MODEL_OLLAMA)
+        create_llm(alias="ollama-qwen3.5")
     mock_cls.assert_called_once()
     kwargs = mock_cls.call_args.kwargs
     assert kwargs["base_url"] == settings.OLLAMA_BASE_URL + "/v1"
-    assert kwargs["model"] == settings.LLM_MODEL
+    assert kwargs["model"] == "qwen3.5:9b"
     assert kwargs["api_key"] == "ollama"
-    assert kwargs["streaming"] is True
 
 
-def test_dashscope_model():
-    """按 qwen3.7-flash 选择名创建 DashScope 配置的 LLM"""
+def test_create_llm_planner_alias():
+    """planner 条目：dashscope + 独立模型 + 思考开 + 非流式默认（来自注册表）"""
     with patch("app.services.agent.llm.dashscope.ChatOpenAI") as mock_cls:
-        create_llm(streaming=False, model=settings.MODEL_DASHSCOPE_QWEN)
-    mock_cls.assert_called_once()
+        create_llm(alias="planner")
     kwargs = mock_cls.call_args.kwargs
-    assert kwargs["base_url"] == settings.DASHSCOPE_BASE_URL
-    assert kwargs["model"] == settings.DASHSCOPE_MODEL
-    assert kwargs["api_key"] == settings.DASHSCOPE_API_KEY
+    assert kwargs["model"] == "qwen3.7-flash-2026-07-15"
     assert kwargs["streaming"] is False
 
 
-def test_dashscope_disables_thinking_for_title():
-    """标题场景：关闭思考模式并限制 max_tokens，让标题秒回不被思考拖慢"""
+def test_create_llm_runtime_override():
+    """运行时覆盖 streaming/enable_thinking/max_tokens（节点业务决策优先于注册表）"""
     with patch("app.services.agent.llm.dashscope.ChatOpenAI") as mock_cls:
-        create_llm(
-            streaming=False,
-            model=settings.MODEL_DASHSCOPE_QWEN,
-            enable_thinking=False,
-            max_tokens=100,
-        )
+        create_llm(alias="qwen3.7-flash", streaming=False, enable_thinking=False, max_tokens=100)
     kwargs = mock_cls.call_args.kwargs
+    assert kwargs["streaming"] is False
     assert kwargs["max_tokens"] == 100
-    # DashScope 兼容模式通过 extra_body 关闭思考
     assert kwargs["extra_body"] == {"enable_thinking": False}
 
 
-def test_ollama_ignores_thinking_params():
-    """Ollama 分支不受思考参数影响：不传 extra_body / max_tokens"""
-    with patch("app.services.agent.llm.ollama.ChatOpenAI") as mock_cls:
-        create_llm(
-            streaming=True,
-            model=settings.MODEL_OLLAMA,
-            enable_thinking=False,
-            max_tokens=100,
-        )
-    kwargs = mock_cls.call_args.kwargs
-    assert kwargs["base_url"] == settings.OLLAMA_BASE_URL + "/v1"
-    assert kwargs["model"] == settings.LLM_MODEL
-    assert "extra_body" not in kwargs
-    assert "max_tokens" not in kwargs
-
-
-def test_unknown_model_raises():
-    """非空未知选择名抛 ValueError，避免静默回退掩盖配置漂移"""
+def test_create_llm_unknown_alias_raises():
+    """未知 alias 抛 ValueError（防拼错静默用错模型，白名单由注册表承担）"""
     with pytest.raises(ValueError):
-        create_llm(model="qwen3.7-flsh")  # 拼错的选择名
+        create_llm(alias="qwen3.7-flsh")
 
 
-def test_unknown_ollama_prefix_model_raises():
-    """ollama 前缀但未注册的选择名也抛 ValueError（厂商内模型分发兜底）"""
-    with pytest.raises(ValueError):
-        create_llm(model="ollama-unknown")
-
-
-def test_dashscope_thinking_enabled_omits_extra_body():
-    """enable_thinking 默认开启时不传 extra_body（反向断言）"""
-    with patch("app.services.agent.llm.dashscope.ChatOpenAI") as mock_cls:
-        create_llm(streaming=True, model=settings.MODEL_DASHSCOPE_QWEN)
-    kwargs = mock_cls.call_args.kwargs
-    assert "extra_body" not in kwargs
-
-
-def test_default_falls_back_to_ollama():
-    """未指定 model 时回退本地 Ollama（向后兼容）"""
+def test_create_llm_default_falls_back_to_local():
+    """alias 缺省回退本地 ollama（向后兼容）"""
     with patch("app.services.agent.llm.ollama.ChatOpenAI") as mock_cls:
-        create_llm(streaming=True)
+        create_llm()
     mock_cls.assert_called_once()
     kwargs = mock_cls.call_args.kwargs
     assert kwargs["base_url"] == settings.OLLAMA_BASE_URL + "/v1"
-    assert kwargs["model"] == settings.LLM_MODEL
-    assert kwargs["api_key"] == "ollama"

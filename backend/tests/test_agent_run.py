@@ -7,6 +7,7 @@ import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
 from app.auth import current_user_id
+from app.config.agent_settings import agent_settings
 from app.config.settings import settings
 from app.models.agent_run import AgentRun
 from app.models.conversation import Conversation
@@ -87,14 +88,14 @@ async def test_chat_stream_saves_full_trace_without_tools():
         service.graph = MagicMock()
         service.graph.astream = fake_astream
 
-        async for _ in service.chat_stream("c1", "你好", settings.MODEL_OLLAMA):
+        async for _ in service.chat_stream("c1", "你好", agent_settings.MODEL_OLLAMA):
             pass
 
         # 断言落库的 run 记录内容
         run = service.agent_run_repo.create.call_args[0][0]
         assert run.status == "ok"
         assert run.conversation_id == "c1"
-        assert run.model == settings.MODEL_OLLAMA
+        assert run.model == agent_settings.MODEL_OLLAMA
         assert [m["role"] for m in run.messages] == ["user", "assistant"]
         assert run.messages[0] == {"role": "user", "content": "你好"}
         assert run.messages[1]["content"] == "你好，很高兴认识你"
@@ -146,7 +147,7 @@ async def test_chat_stream_saves_full_trace_with_tools():
         service.graph = MagicMock()
         service.graph.astream = fake_astream
 
-        async for _ in service.chat_stream("c1", "查一下账单", settings.MODEL_OLLAMA):
+        async for _ in service.chat_stream("c1", "查一下账单", agent_settings.MODEL_OLLAMA):
             pass
 
         run = service.agent_run_repo.create.call_args[0][0]
@@ -186,7 +187,7 @@ async def test_chat_stream_records_error_run():
         service.graph.astream = fake_astream
 
         with pytest.raises(RuntimeError):
-            async for _ in service.chat_stream("c1", "你好", settings.MODEL_OLLAMA):
+            async for _ in service.chat_stream("c1", "你好", agent_settings.MODEL_OLLAMA):
                 pass
 
         run = service.agent_run_repo.create.call_args[0][0]
@@ -232,7 +233,7 @@ async def test_chat_stream_records_interrupted_run():
         service.graph.astream = fake_astream
 
         # 消费一段后主动关闭生成器，模拟客户端断开
-        agen = service.chat_stream("c1", "你好", settings.MODEL_OLLAMA)
+        agen = service.chat_stream("c1", "你好", agent_settings.MODEL_OLLAMA)
         await agen.__anext__()  # 消费第一个事件（标题），生成器停在循环中间
         await agen.aclose()     # 模拟客户端中途断开
 
@@ -268,7 +269,7 @@ async def test_chat_stream_keep_original_exception_when_save_fails():
         service.graph.astream = fake_astream
 
         with pytest.raises(RuntimeError) as exc_info:
-            async for _ in service.chat_stream("c1", "你好", settings.MODEL_OLLAMA):
+            async for _ in service.chat_stream("c1", "你好", agent_settings.MODEL_OLLAMA):
                 pass
 
         # 原始异常（模型调用超时）必须向上传播，而不是被落库异常（落库也失败）顶替
@@ -305,7 +306,7 @@ async def test_chat_stream_records_verifier_verdict_in_trace():
         service.graph = MagicMock()
         service.graph.astream = fake_astream
 
-        async for _ in service.chat_stream("c1", "你好", settings.MODEL_OLLAMA):
+        async for _ in service.chat_stream("c1", "你好", agent_settings.MODEL_OLLAMA):
             pass
 
         run = service.agent_run_repo.create.call_args[0][0]

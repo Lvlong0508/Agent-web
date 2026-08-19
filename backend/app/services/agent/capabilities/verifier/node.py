@@ -5,7 +5,7 @@ from typing import Literal
 
 from langgraph.graph import END
 
-from app.config.settings import settings
+from app.config.agent_settings import agent_settings
 from app.services.agent.llm import create_llm
 from app.services.agent.capabilities.verifier.context.verdict import (
     Verdict,
@@ -62,8 +62,8 @@ def make_verifier_node(tools: list | None = None):
     # verifier 节点：判定 agent 候选回复是否准确，决定结束/重写/报错
     async def verifier_node(state) -> dict:
         llm = create_llm(
+            alias=state.get("model") or agent_settings.MODEL_OLLAMA,
             streaming=False,
-            model=state.get("model") or settings.MODEL_OLLAMA,
             # 验证不需要深度思考：关闭思考模式让判定快速返回，避免十几秒思考拖慢
             enable_thinking=False,
             # 限制输出长度：质检判定只需短结论（is_accurate + issues），

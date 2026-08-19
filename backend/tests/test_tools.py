@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
 from app.auth import current_user_id
+from app.config.agent_settings import agent_settings
 from app.config.settings import settings
 from app.middleware.mysql import Base, SessionLocal, engine
 from app.models.expense import Expense
@@ -217,7 +218,7 @@ async def test_contextvar_propagates_into_agent_tools():
     # 一次 ainvoke 会一次性吃光迭代器，共享迭代器会导致第二轮拿到空流。
     agent_call_count = {"n": 0}
 
-    def fake_create_llm(streaming=True, model="", enable_thinking=True, max_tokens=None):
+    def fake_create_llm(streaming=True, alias=None, enable_thinking=True, max_tokens=None):
         if not streaming:
             return GenericFakeChatModel(messages=iter([AIMessage(content='"标题"')]))
         agent_call_count["n"] += 1
@@ -238,7 +239,7 @@ async def test_contextvar_propagates_into_agent_tools():
                  patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm), \
                  patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm):
                 async for _ in graph.astream(
-                    {"messages": [HumanMessage(content="记一笔账")], "conv_id": "c1", "user_id": "user-tool", "model": settings.MODEL_OLLAMA},
+                    {"messages": [HumanMessage(content="记一笔账")], "conv_id": "c1", "user_id": "user-tool", "model": agent_settings.MODEL_OLLAMA},
                     stream_mode="messages",
                 ):
                     pass
@@ -292,7 +293,7 @@ async def test_agent_tool_loop_returns_final_reply_and_filters_mid_round():
 
     agent_call_count = {"n": 0}
 
-    def fake_create_llm(streaming=True, model="", enable_thinking=True, max_tokens=None):
+    def fake_create_llm(streaming=True, alias=None, enable_thinking=True, max_tokens=None):
         if not streaming:
             return GenericFakeChatModel(messages=iter([AIMessage(content='"标题"')]))
         agent_call_count["n"] += 1
@@ -320,7 +321,7 @@ async def test_agent_tool_loop_returns_final_reply_and_filters_mid_round():
                  patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm), \
                  patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm):
                 async for line in service.chat_stream(
-                    "c1", "查一下账单", settings.MODEL_OLLAMA, thinking=False
+                    "c1", "查一下账单", agent_settings.MODEL_OLLAMA, thinking=False
                 ):
                     events.append(line)
     finally:

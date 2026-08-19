@@ -5,6 +5,7 @@ from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END
 
+from app.config.agent_settings import agent_settings
 from app.config.settings import settings
 from app.services.agent import (
     MAX_VERIFY_RETRIES,
@@ -85,8 +86,8 @@ async def test_astream_runs_full_graph_with_title_and_tokens():
     # 记录图内节点创建 LLM 时传入的 model 选择名，用于验证透传
     received_models = []
 
-    def fake_create_llm(streaming: bool = True, model: str = "", enable_thinking: bool = True, max_tokens: int | None = None):
-        received_models.append(model)
+    def fake_create_llm(streaming: bool = True, alias: str | None = None, enable_thinking: bool = True, max_tokens: int | None = None):
+        received_models.append(alias)
         return title_llm if not streaming else agent_llm
 
     graph = build_agent_graph(conv_repo)
@@ -105,7 +106,7 @@ async def test_astream_runs_full_graph_with_title_and_tokens():
                     "messages": [HumanMessage(content="hi")],
                     "conv_id": "c1",
                     "user_id": "user-abc",  # 图节点按用户隔离查询，必须注入归属用户
-                    "model": settings.MODEL_DASHSCOPE_QWEN,
+                    "model": agent_settings.MODEL_DASHSCOPE_QWEN,
                 },
                 stream_mode="messages",
             ):
@@ -123,7 +124,7 @@ async def test_astream_runs_full_graph_with_title_and_tokens():
     # 图内节点应按所选模型创建 LLM（标题节点 + agent 节点 + verifier 节点各调用一次）。
     # 注意：三节点并行 fan-out，谁先调用 create_llm 顺序不固定，只校验次数与取值
     assert len(received_models) == 3
-    assert all(m == settings.MODEL_DASHSCOPE_QWEN for m in received_models)
+    assert all(m == agent_settings.MODEL_DASHSCOPE_QWEN for m in received_models)
 
 
 @pytest.mark.asyncio
@@ -147,8 +148,8 @@ async def test_title_failure_does_not_block_chat():
     # 记录图内节点创建 LLM 时传入的 model 选择名，用于验证透传
     received_models = []
 
-    def fake_create_llm(streaming: bool = True, model: str = "", enable_thinking: bool = True, max_tokens: int | None = None):
-        received_models.append(model)
+    def fake_create_llm(streaming: bool = True, alias: str | None = None, enable_thinking: bool = True, max_tokens: int | None = None):
+        received_models.append(alias)
         return title_llm if not streaming else agent_llm
 
     graph = build_agent_graph(conv_repo)
@@ -166,7 +167,7 @@ async def test_title_failure_does_not_block_chat():
                     "messages": [HumanMessage(content="hi")],
                     "conv_id": "c1",
                     "user_id": "user-abc",
-                    "model": settings.MODEL_DASHSCOPE_QWEN,
+                    "model": agent_settings.MODEL_DASHSCOPE_QWEN,
                 },
                 stream_mode="messages",
             ):
@@ -180,7 +181,7 @@ async def test_title_failure_does_not_block_chat():
     # 图内节点应按所选模型创建 LLM（标题节点 + agent 节点 + verifier 节点各调用一次）。
     # 并行 fan-out 下调用顺序不固定，只校验次数与取值
     assert len(received_models) == 3
-    assert all(m == settings.MODEL_DASHSCOPE_QWEN for m in received_models)
+    assert all(m == agent_settings.MODEL_DASHSCOPE_QWEN for m in received_models)
 
 
 @pytest.mark.asyncio
@@ -195,7 +196,7 @@ async def test_generate_title_node_exposes_title_in_updates():
     title_llm = GenericFakeChatModel(messages=iter([AIMessage(content='"集成标题"')]))
     agent_llm = GenericFakeChatModel(messages=iter([AIMessage(content="回复内容")]))
 
-    def fake_create_llm(streaming: bool = True, model: str = "", enable_thinking: bool = True, max_tokens: int | None = None):
+    def fake_create_llm(streaming: bool = True, alias: str | None = None, enable_thinking: bool = True, max_tokens: int | None = None):
         return title_llm if not streaming else agent_llm
 
     graph = build_agent_graph(conv_repo)
@@ -209,7 +210,7 @@ async def test_generate_title_node_exposes_title_in_updates():
              patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm), \
              patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm):
             async for mode, data in graph.astream(
-                {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
+                {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": agent_settings.MODEL_OLLAMA},
                 stream_mode=["messages", "updates"],
             ):
                 if mode == "updates":
@@ -239,7 +240,7 @@ async def test_agent_node_thinking_switch():
 
     received = []
 
-    def fake_create_llm(streaming=True, model="", enable_thinking=True, max_tokens=None):
+    def fake_create_llm(streaming=True, alias=None, enable_thinking=True, max_tokens=None):
         received.append({"streaming": streaming, "enable_thinking": enable_thinking})
         return title_llm if not streaming else agent_llm
 
@@ -257,7 +258,7 @@ async def test_agent_node_thinking_switch():
                     "messages": [HumanMessage(content="hi")],
                     "conv_id": "c1",
                     "user_id": "user-abc",
-                    "model": settings.MODEL_DASHSCOPE_QWEN,
+                    "model": agent_settings.MODEL_DASHSCOPE_QWEN,
                     "thinking": True,  # 用户在前端开启了深度思考
                 },
                 stream_mode="messages",
@@ -287,7 +288,7 @@ async def test_agent_node_thinking_defaults_off():
 
     received = []
 
-    def fake_create_llm(streaming=True, model="", enable_thinking=True, max_tokens=None):
+    def fake_create_llm(streaming=True, alias=None, enable_thinking=True, max_tokens=None):
         received.append({"streaming": streaming, "enable_thinking": enable_thinking})
         return agent_llm
 
@@ -323,8 +324,8 @@ async def test_astream_defaults_to_ollama_without_model():
 
     received_models = []
 
-    def fake_create_llm(streaming: bool = True, model: str = "", enable_thinking: bool = True, max_tokens: int | None = None):
-        received_models.append(model)
+    def fake_create_llm(streaming: bool = True, alias: str | None = None, enable_thinking: bool = True, max_tokens: int | None = None):
+        received_models.append(alias)
         return agent_llm
 
     graph = build_agent_graph(conv_repo)
@@ -345,7 +346,7 @@ async def test_astream_defaults_to_ollama_without_model():
     # 标题节点 + agent 节点 + verifier 节点各调用一次 create_llm，且均缺省回退 Ollama 选择名。
     # 并行 fan-out 下调用顺序不固定，只校验次数与取值
     assert len(received_models) == 3
-    assert all(m == settings.MODEL_OLLAMA for m in received_models)
+    assert all(m == agent_settings.MODEL_OLLAMA for m in received_models)
 
 
 def test_should_continue_without_tool_calls_routes_to_verifier():
@@ -447,12 +448,12 @@ async def test_verifier_accurate_ends_graph():
     updates = []
     with (
         patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict),
-        patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=lambda streaming=True, model="", enable_thinking=True, max_tokens=None: agent_llm),
-        patch("app.services.agent.capabilities.title.create_llm", side_effect=lambda streaming=True, model="", enable_thinking=True, max_tokens=None: agent_llm),
-        patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=lambda streaming=True, model="", enable_thinking=True, max_tokens=None: agent_llm),
+        patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=lambda streaming=True, alias=None, enable_thinking=True, max_tokens=None: agent_llm),
+        patch("app.services.agent.capabilities.title.create_llm", side_effect=lambda streaming=True, alias=None, enable_thinking=True, max_tokens=None: agent_llm),
+        patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=lambda streaming=True, alias=None, enable_thinking=True, max_tokens=None: agent_llm),
     ):
         async for mode, data in graph.astream(
-            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
+            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": agent_settings.MODEL_OLLAMA},
             stream_mode=["messages", "updates"],
         ):
             if mode == "updates":
@@ -480,12 +481,12 @@ async def test_verifier_degrades_to_pass_when_llm_fails():
     updates = []
     with (
         patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=boom_verdict),
-        patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=lambda streaming=True, model="", enable_thinking=True, max_tokens=None: agent_llm),
-        patch("app.services.agent.capabilities.title.create_llm", side_effect=lambda streaming=True, model="", enable_thinking=True, max_tokens=None: agent_llm),
-        patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=lambda streaming=True, model="", enable_thinking=True, max_tokens=None: agent_llm),
+        patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=lambda streaming=True, alias=None, enable_thinking=True, max_tokens=None: agent_llm),
+        patch("app.services.agent.capabilities.title.create_llm", side_effect=lambda streaming=True, alias=None, enable_thinking=True, max_tokens=None: agent_llm),
+        patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=lambda streaming=True, alias=None, enable_thinking=True, max_tokens=None: agent_llm),
     ):
         async for mode, data in graph.astream(
-            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
+            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": agent_settings.MODEL_OLLAMA},
             stream_mode=["messages", "updates"],
         ):
             if mode == "updates":
@@ -509,7 +510,7 @@ async def test_verifier_retry_then_pass_loops_through_agent():
     rewrite_llm = GenericFakeChatModel(messages=iter([AIMessage(content="重写回复")]))
 
     # 按 streaming 区分：首轮流式(True)拿 first_llm，重写轮非流式(False)拿 rewrite_llm
-    def fake_create_llm(streaming=True, model="", enable_thinking=True, max_tokens=None):
+    def fake_create_llm(streaming=True, alias=None, enable_thinking=True, max_tokens=None):
         return first_llm if streaming else rewrite_llm
 
     # 第一次验证判不准，第二次判准确
@@ -530,7 +531,7 @@ async def test_verifier_retry_then_pass_loops_through_agent():
         patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm),
     ):
         async for mode, data in graph.astream(
-            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
+            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": agent_settings.MODEL_OLLAMA},
             stream_mode=["messages", "updates"],
         ):
             if mode == "updates":
@@ -558,7 +559,7 @@ async def test_verifier_fail_when_retries_exhausted():
     first_llm = GenericFakeChatModel(messages=iter([AIMessage(content="首次")]))
     rewrite_llm = GenericFakeChatModel(messages=iter([AIMessage(content="重写1"), AIMessage(content="重写2")]))
 
-    def fake_create_llm(streaming=True, model="", enable_thinking=True, max_tokens=None):
+    def fake_create_llm(streaming=True, alias=None, enable_thinking=True, max_tokens=None):
         return first_llm if streaming else rewrite_llm
 
     # 每次都判不准
@@ -574,7 +575,7 @@ async def test_verifier_fail_when_retries_exhausted():
         patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm),
     ):
         async for mode, data in graph.astream(
-            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
+            {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": agent_settings.MODEL_OLLAMA},
             stream_mode=["messages", "updates"],
         ):
             if mode == "updates":
@@ -612,7 +613,7 @@ async def test_rewrite_round_input_excludes_rejected_candidate():
     first_llm = GenericFakeChatModel(messages=iter([AIMessage(content="首次回复")]))
     rewrite_llm = RecordingFakeChatModel([AIMessage(content="重写回复")])
 
-    def fake_create_llm(streaming=True, model="", enable_thinking=True, max_tokens=None):
+    def fake_create_llm(streaming=True, alias=None, enable_thinking=True, max_tokens=None):
         return first_llm if streaming else rewrite_llm
 
     # 第一次验证判不准（触发重写），重写后判准确（走 pass，只重写一轮）
@@ -633,7 +634,7 @@ async def test_rewrite_round_input_excludes_rejected_candidate():
     ):
         async for mode, data in graph.astream(
             {"messages": [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content="我今天吃了8000块饭，对不？")],
-             "conv_id": "c1", "user_id": "user-abc", "model": settings.MODEL_OLLAMA},
+             "conv_id": "c1", "user_id": "user-abc", "model": agent_settings.MODEL_OLLAMA},
             stream_mode=["messages", "updates"],
         ):
             pass
