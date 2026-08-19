@@ -21,6 +21,7 @@ from app.services.agent import (
     VERIFIER_VERDICT_EVENT,
     build_agent_graph,
     build_agent_messages,
+    get_skills_index_prompt,  # L0 技能索引：注入首轮 system prompt
 )
 # chat 流式会话子包：chat_stream 拆分出的可独立单测单元（spec 2026-08-17）
 from app.services.chat import (
@@ -158,7 +159,9 @@ class ChatService:
         # 注入当前日期：agent 构造日期类工具参数（如"8月14日"账单）时才知道
         # 今天是哪年，不会幻觉成往年（实测用 2023 年查询当月账单致查空）
         today = time.strftime("%Y-%m-%d", time.localtime())
-        langchain_messages = build_agent_messages(history, today)
+        langchain_messages = build_agent_messages(
+            history, today, get_skills_index_prompt()
+        )
 
         # 4. 会话状态与事件订阅（替代原闭包 + nonlocal）
         trace_id = uuid.uuid4().hex  # 请求级追踪 ID：注入 config 透传给 emit 与落库

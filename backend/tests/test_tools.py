@@ -29,6 +29,7 @@ EXPECTED_TOOL_NAMES = {
     "delete_expense",
     "get_now_time",
     "calculate",
+    "read_skill",  # 技能读取工具随 get_tools 一起注册给 agent
 }
 
 # 仅账单工厂单独产出的工具名：build_expense_tools 不应包含时间工具

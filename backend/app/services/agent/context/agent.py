@@ -16,20 +16,21 @@ HISTORY_REFERENCE_MARKER = "history_reference"
 HISTORY_WINDOW_SIZE = 10
 
 
-def build_agent_messages(history: list, today: str) -> list:
+def build_agent_messages(history: list, today: str, skills_index: str = "") -> list:
     """把拉取的历史消息（user/assistant 角色）转成 LangChain 消息，前置
-    系统提示词（含当前日期），构造 agent 首轮完整上下文。
+    系统提示词（含当前日期与可选技能索引），构造 agent 首轮完整上下文。
 
-    结构：SystemMessage(系统提示词含日期) + HumanMessage(name=history_reference,
+    结构：SystemMessage(系统提示词含日期与技能索引) + HumanMessage(name=history_reference,
     折叠的历史) + HumanMessage(本轮用户问题)。本轮问题永远在最后，模型据此
     明确"当前要回答什么"；历史只是参考块。
 
     history：MongoDB 消息对象列表（含 role/content 字段），按时间顺序，
     最后一条通常为刚保存的本轮用户消息；
     today：YYYY-MM-DD 日期字符串，注入系统提示词（agent 据此才知道"今天"
-    是哪天，构造日期类工具参数时才不会幻觉成往年，实测用 2023 年查询当月账单）。
+    是哪天，构造日期类工具参数时才不会幻觉成往年，实测用 2023 年查询当月账单）；
+    skills_index：技能目录清单（L0 索引），缺省空串不追加（skill 机制透明）。
     """
-    messages = [SystemMessage(content=build_system_prompt(today))]
+    messages = [SystemMessage(content=build_system_prompt(today, skills_index))]
     if not history:
         return messages
 

@@ -91,7 +91,10 @@ def build_verdict_input(
     # 重写轮的旧工具结果（首轮被否决周期产生，位于否决候选之前）会干扰质检、
     # 并膨胀质检输入，必须丢弃；无被否决候选（普通单轮）时退化为 user_index
     # 之后（丢弃历史轮次的工具结果）。被否决候选 = 除最终候选外最后一条
-    # "无工具调用"的 assistant（首轮已判错、被重写轮替换的旧回复）
+    # "无工具调用"的 assistant（首轮已判错、被重写轮替换的旧回复）。
+    # 另需排除 read_skill 的 ToolMessage：技能正文是流程/领域知识，不是数据
+    # 证据，混入会让质检员把 skill 里的文字当"数据来源"误判候选回复的准确性
+    # （spec 2026-08-18）；质检只应核对数据类工具（账单查询等）的真实结果
     rejected_index = -1
     for idx, m in enumerate(dialogue_messages):
         if isinstance(m, AIMessage) and not m.tool_calls and m is not candidate:
@@ -99,7 +102,9 @@ def build_verdict_input(
     tool_lower_bound = rejected_index if rejected_index >= 0 else user_index
     current_tools = [
         m for idx, m in enumerate(dialogue_messages)
-        if isinstance(m, ToolMessage) and idx > tool_lower_bound
+        if isinstance(m, ToolMessage)
+        and idx > tool_lower_bound
+        and m.name != "read_skill"  # 技能正文是知识不是数据，排除出数据判定（spec 2026-08-18）
     ]
 
     # 参考上下文：有 history_reference 用其完整精纯历史（含本轮 user），

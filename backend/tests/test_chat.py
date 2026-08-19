@@ -9,6 +9,7 @@ from app.config.settings import settings
 from app.models.conversation import Conversation
 from app.schemas.chat import SendMessageRequest
 from app.services.chat_service import USER_FRIENDLY_ERROR, ChatService
+from app.services.agent import get_skills_index_prompt
 from app.services.agent.prompts import REPLY_ON_VERIFY_FAILED, SYSTEM_PROMPT, build_system_prompt
 
 
@@ -198,7 +199,8 @@ async def test_chat_stream_prepends_system_prompt(chat_service):
     # 系统提示词 = 基础提示词 + 当前日期注入（agent 知道今天是哪年）
     import time
     today = time.strftime("%Y-%m-%d", time.localtime())
-    assert messages[0].content == build_system_prompt(today)
+    # 技能索引同样注入（chat_stream 调用 build_agent_messages 时传入）
+    assert messages[0].content == build_system_prompt(today, get_skills_index_prompt())
     assert messages[1].content == "hello"
 
 
