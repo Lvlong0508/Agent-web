@@ -12,6 +12,8 @@ from app.config.settings import settings
 from app.models.agent_run import AgentRun
 from app.models.conversation import Conversation
 from app.repositories.agent_run_repo import AgentRunRepo
+from app.schemas.agent_run import AgentRunPage
+from app.services.agent_run_service import AgentRunService
 from app.services.chat_service import ChatService
 
 
@@ -63,14 +65,59 @@ async def test_agent_run_repo_list_by_conversation():
 
 
 @pytest.mark.asyncio
+async def test_agent_run_repo_list_paged():
+    """分页查询：先 count_documents 统计总数，再按 created_at 倒序 skip/limit"""
+    db = MagicMock()
+    now = datetime.now(timezone.utc)
+    repo = AgentRunRepo(db)
+    # 分页链：find → sort → skip → limit → to_list；count_documents 独立统计总数
+    repo.collection.count_documents = AsyncMock(return_value=3)
+    repo.collection.find.return_value.sort.return_value.skip.return_value.limit.return_value.to_list = AsyncMock(
+        return_value=[{
+            "_id": "r1", "conversation_id": "c1", "user_id": "u1",
+            "model": "ollama", "status": "ok", "error": None,
+            "messages": [], "created_at": now,
+        }]
+    )
+
+    items, total = await repo.list_paged({"user_id": "u1"}, 2, 10)
+
+    # 过滤条件原样传给 count 与 find
+    repo.collection.count_documents.assert_awaited_once_with({"user_id": "u1"})
+    repo.collection.find.assert_called_once_with({"user_id": "u1"})
+    # 创建时间倒序（最新在前），第 2 页跳过前 10 条、取 10 条
+    repo.collection.find.return_value.sort.assert_called_once_with("created_at", -1)
+    repo.collection.find.return_value.sort.return_value.skip.assert_called_once_with(10)
+    repo.collection.find.return_value.sort.return_value.skip.return_value.limit.assert_called_once_with(10)
+    assert total == 3
+    assert len(items) == 1
+    assert items[0].conversation_id == "c1"
+
+
+@pytest.mark.asyncio
+async def test_agent_run_repo_delete_many():
+    """批量删除：$in 命中即删，返回实际删除条数"""
+    db = MagicMock()
+    repo = AgentRunRepo(db)
+    result_mock = MagicMock()
+    result_mock.deleted_count = 2  # r3 不存在，实际只删掉 2 条
+    repo.collection.delete_many = AsyncMock(return_value=result_mock)
+
+    n = await repo.delete_many(["r1", "r2", "r3"])
+
+    assert n == 2
+    repo.collection.delete_many.assert_awaited_once_with({"_id": {"$in": ["r1", "r2", "r3"]}})
+
+
+@pytest.mark.asyncio
 async def test_chat_stream_saves_full_trace_without_tools():
     """无工具调用：run 记录含 user + assistant 最终回复，status=ok"""
     token = current_user_id.set("anonymous")
     try:
         conv = Conversation(_id="c1", user_id="anonymous")
         service = ChatService(MagicMock())
-        service.agent_run_repo = MagicMock()
-        service.agent_run_repo.create = AsyncMock(return_value=None)
+        service.agent_run_service = MagicMock()
+        service.agent_run_service.create = AsyncMock(return_value=None)
         service.conv_repo.get_by_id = AsyncMock(return_value=conv)
         service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
         service.msg_repo.create = AsyncMock(return_value=None)
@@ -91,14 +138,14 @@ async def test_chat_stream_saves_full_trace_without_tools():
         async for _ in service.chat_stream("c1", "你好", agent_settings.MODEL_OLLAMA):
             pass
 
-        # 断言落库的 run 记录内容
-        run = service.agent_run_repo.create.call_args[0][0]
-        assert run.status == "ok"
-        assert run.conversation_id == "c1"
-        assert run.model == agent_settings.MODEL_OLLAMA
-        assert [m["role"] for m in run.messages] == ["user", "assistant"]
-        assert run.messages[0] == {"role": "user", "content": "你好"}
-        assert run.messages[1]["content"] == "你好，很高兴认识你"
+        # 断言落库的 run 记录内容（chat_service 以 kwargs 调 service.create）
+        run = service.agent_run_service.create.await_args.kwargs
+        assert run["status"] == "ok"
+        assert run["conversation_id"] == "c1"
+        assert run["model"] == agent_settings.MODEL_OLLAMA
+        assert [m["role"] for m in run["messages"]] == ["user", "assistant"]
+        assert run["messages"][0] == {"role": "user", "content": "你好"}
+        assert run["messages"][1]["content"] == "你好，很高兴认识你"
     finally:
         current_user_id.reset(token)
 
@@ -110,8 +157,8 @@ async def test_chat_stream_saves_full_trace_with_tools():
     try:
         conv = Conversation(_id="c1", user_id="anonymous")
         service = ChatService(MagicMock())
-        service.agent_run_repo = MagicMock()
-        service.agent_run_repo.create = AsyncMock(return_value=None)
+        service.agent_run_service = MagicMock()
+        service.agent_run_service.create = AsyncMock(return_value=None)
         service.conv_repo.get_by_id = AsyncMock(return_value=conv)
         service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
         service.msg_repo.create = AsyncMock(return_value=None)
@@ -150,17 +197,17 @@ async def test_chat_stream_saves_full_trace_with_tools():
         async for _ in service.chat_stream("c1", "查一下账单", agent_settings.MODEL_OLLAMA):
             pass
 
-        run = service.agent_run_repo.create.call_args[0][0]
+        run = service.agent_run_service.create.await_args.kwargs
         # 四类消息按时间顺序完整记录
-        assert [m["role"] for m in run.messages] == ["user", "assistant", "tool", "assistant"]
+        assert [m["role"] for m in run["messages"]] == ["user", "assistant", "tool", "assistant"]
         # 中间 assistant 消息携带工具调用参数
-        assert run.messages[1]["tool_calls"][0]["name"] == "list_expenses"
-        assert run.messages[1]["tool_calls"][0]["args"] == {"page": 1, "page_size": 5}
+        assert run["messages"][1]["tool_calls"][0]["name"] == "list_expenses"
+        assert run["messages"][1]["tool_calls"][0]["args"] == {"page": 1, "page_size": 5}
         # 工具结果消息带工具名与返回内容
-        assert run.messages[2]["name"] == "list_expenses"
-        assert "total" in run.messages[2]["content"]
+        assert run["messages"][2]["name"] == "list_expenses"
+        assert "total" in run["messages"][2]["content"]
         # 最终回复
-        assert run.messages[3]["content"] == "你共有 0 条账单"
+        assert run["messages"][3]["content"] == "你共有 0 条账单"
     finally:
         current_user_id.reset(token)
 
@@ -172,8 +219,8 @@ async def test_chat_stream_records_error_run():
     try:
         conv = Conversation(_id="c1", user_id="anonymous")
         service = ChatService(MagicMock())
-        service.agent_run_repo = MagicMock()
-        service.agent_run_repo.create = AsyncMock(return_value=None)
+        service.agent_run_service = MagicMock()
+        service.agent_run_service.create = AsyncMock(return_value=None)
         service.conv_repo.get_by_id = AsyncMock(return_value=conv)
         service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
         service.msg_repo.create = AsyncMock(return_value=None)
@@ -190,13 +237,13 @@ async def test_chat_stream_records_error_run():
             async for _ in service.chat_stream("c1", "你好", agent_settings.MODEL_OLLAMA):
                 pass
 
-        run = service.agent_run_repo.create.call_args[0][0]
-        assert run.status == "error"
-        assert "模型调用超时" in run.error
+        run = service.agent_run_service.create.await_args.kwargs
+        assert run["status"] == "error"
+        assert "模型调用超时" in run["error"]
         # 已收集到的消息仍保留（用户消息 + 中途 agent 输出）
-        assert [m["role"] for m in run.messages] == ["user", "assistant"]
+        assert [m["role"] for m in run["messages"]] == ["user", "assistant"]
         # 只落库一条 error 记录（finally 兜底不再补记），防止重复写入
-        assert service.agent_run_repo.create.call_count == 1
+        assert service.agent_run_service.create.call_count == 1
     finally:
         current_user_id.reset(token)
 
@@ -208,8 +255,8 @@ async def test_chat_stream_records_interrupted_run():
     try:
         conv = Conversation(_id="c1", user_id="anonymous")
         service = ChatService(MagicMock())
-        service.agent_run_repo = MagicMock()
-        service.agent_run_repo.create = AsyncMock(return_value=None)
+        service.agent_run_service = MagicMock()
+        service.agent_run_service.create = AsyncMock(return_value=None)
         service.conv_repo.get_by_id = AsyncMock(return_value=conv)
         service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
         service.msg_repo.create = AsyncMock(return_value=None)
@@ -237,10 +284,10 @@ async def test_chat_stream_records_interrupted_run():
         await agen.__anext__()  # 消费第一个事件（标题），生成器停在循环中间
         await agen.aclose()     # 模拟客户端中途断开
 
-        run = service.agent_run_repo.create.call_args[0][0]
-        assert run.status == "error"
-        assert "流被中断" in run.error
-        assert run.messages[0] == {"role": "user", "content": "你好"}
+        run = service.agent_run_service.create.await_args.kwargs
+        assert run["status"] == "error"
+        assert "流被中断" in run["error"]
+        assert run["messages"][0] == {"role": "user", "content": "你好"}
     finally:
         current_user_id.reset(token)
 
@@ -252,8 +299,8 @@ async def test_chat_stream_keep_original_exception_when_save_fails():
     try:
         conv = Conversation(_id="c1", user_id="anonymous")
         service = ChatService(MagicMock())
-        service.agent_run_repo = MagicMock()
-        service.agent_run_repo.create = AsyncMock(side_effect=RuntimeError("落库也失败"))
+        service.agent_run_service = MagicMock()
+        service.agent_run_service.create = AsyncMock(side_effect=RuntimeError("落库也失败"))
         service.conv_repo.get_by_id = AsyncMock(return_value=conv)
         service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
         service.msg_repo.create = AsyncMock(return_value=None)
@@ -285,8 +332,8 @@ async def test_chat_stream_records_verifier_verdict_in_trace():
     try:
         conv = Conversation(_id="c1", user_id="anonymous")
         service = ChatService(MagicMock())
-        service.agent_run_repo = MagicMock()
-        service.agent_run_repo.create = AsyncMock(return_value=None)
+        service.agent_run_service = MagicMock()
+        service.agent_run_service.create = AsyncMock(return_value=None)
         service.conv_repo.get_by_id = AsyncMock(return_value=conv)
         service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
         service.msg_repo.create = AsyncMock(return_value=None)
@@ -309,16 +356,98 @@ async def test_chat_stream_records_verifier_verdict_in_trace():
         async for _ in service.chat_stream("c1", "你好", agent_settings.MODEL_OLLAMA):
             pass
 
-        run = service.agent_run_repo.create.call_args[0][0]
+        run = service.agent_run_service.create.await_args.kwargs
         # 全链路应包含质检判定记录与发给质检员的输入记录
-        verdicts = [m for m in run.messages if m["role"] == "verdict"]
-        inputs = [m for m in run.messages if m["role"] == "input_verdict"]
+        verdicts = [m for m in run["messages"] if m["role"] == "verdict"]
+        inputs = [m for m in run["messages"] if m["role"] == "input_verdict"]
         assert len(verdicts) == 1
         assert verdicts[0]["content"] == {"is_accurate": True, "issues": ""}
         assert len(inputs) == 1
         assert inputs[0]["content"][0]["role"] == "system"
         assert inputs[0]["content"][1]["content"] == "我这个月花了多少钱？"
         # 时间线一致：先记录发给质检员的输入（input_verdict），再记录判定结果（verdict）
-        assert run.messages.index(inputs[0]) < run.messages.index(verdicts[0])
+        assert run["messages"].index(inputs[0]) < run["messages"].index(verdicts[0])
     finally:
         current_user_id.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_agent_run_service_create():
+    """插入：service 内部构造 AgentRun 后交给 repo，返回 repo 结果"""
+    db = MagicMock()
+    service = AgentRunService(db)
+    service.repo.create = AsyncMock(return_value=None)
+
+    result = await service.create(
+        conversation_id="c1", user_id="u1", model="ollama",
+        status="ok", messages=[{"role": "user", "content": "你好"}],
+        trace_id="t1", error=None,
+    )
+
+    # 透传完整 AgentRun 对象（含默认值：messages 空、status ok、error None）
+    run = service.repo.create.await_args.args[0]
+    assert isinstance(run, AgentRun)
+    assert run.conversation_id == "c1"
+    assert run.trace_id == "t1"
+    assert run.messages == [{"role": "user", "content": "你好"}]
+    assert result is None  # 返回 repo.create 的结果
+
+
+@pytest.mark.asyncio
+async def test_agent_run_service_create_defaults():
+    """插入默认值：status=ok、messages 空列表、trace_id 空串、error None"""
+    db = MagicMock()
+    service = AgentRunService(db)
+    service.repo.create = AsyncMock(return_value=None)
+
+    await service.create(conversation_id="c1", user_id="u1", model="ollama")
+
+    run = service.repo.create.await_args.args[0]
+    assert run.status == "ok"
+    assert run.messages == []
+    assert run.trace_id == ""
+    assert run.error is None
+
+
+@pytest.mark.asyncio
+async def test_agent_run_service_list():
+    """分页查询：默认全量；按 user_id/conversation_id 组装过滤；分页参数钳制"""
+    db = MagicMock()
+    service = AgentRunService(db)
+    now = datetime.now(timezone.utc)
+    items = [AgentRun(conversation_id="c1", user_id="u1", model="ollama")]
+    service.repo.list_paged = AsyncMock(return_value=(items, 3))
+
+    # 默认：不过滤、page=1、page_size=20
+    page = await service.list()
+    service.repo.list_paged.assert_awaited_once_with({}, 1, 20)
+    assert page.total == 3
+    assert page.total_pages == 1  # ceil(3/20) = 1
+    assert page.items == items
+    assert page.page == 1
+    assert page.page_size == 20
+    assert isinstance(page, AgentRunPage)
+
+    # 可选过滤 + 参数钳制：page 0→1，page_size 1000→100
+    page = await service.list(page=0, page_size=1000, user_id="u1", conversation_id="c1")
+    service.repo.list_paged.assert_called_with({"user_id": "u1", "conversation_id": "c1"}, 1, 100)
+    assert page.page == 1
+    assert page.page_size == 100
+
+
+@pytest.mark.asyncio
+async def test_agent_run_service_delete_many():
+    """批量删除：透传 run_ids 到 repo，返回删除条数；空列表直接返回 0 不查库"""
+    db = MagicMock()
+    service = AgentRunService(db)
+    service.repo.delete_many = AsyncMock(return_value=2)
+
+    n = await service.delete_many(["r1", "r2"])
+    assert n == 2
+    service.repo.delete_many.assert_awaited_once_with(["r1", "r2"])
+
+    # 空列表早退：不发无意义的 Mongo 查询
+    service.repo.delete_many = AsyncMock()
+    n = await service.delete_many([])
+    assert n == 0
+    service.repo.delete_many.assert_not_called()

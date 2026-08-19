@@ -306,8 +306,8 @@ async def test_agent_tool_loop_returns_final_reply_and_filters_mid_round():
     service.msg_repo = msg_repo
     service.conv_repo = conv_repo
     # 全链路落库在本测试中不关心，mock 掉 create，避免调用真实集合
-    service.agent_run_repo = MagicMock()
-    service.agent_run_repo.create = AsyncMock(return_value=None)
+    service.agent_run_service = MagicMock()
+    service.agent_run_service.create = AsyncMock(return_value=None)
 
     token = current_user_id.set("user-loop")
     try:
