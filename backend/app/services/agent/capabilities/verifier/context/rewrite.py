@@ -2,6 +2,7 @@
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
+from app.services.agent.capabilities.planner.node import PLANNER_MARKER
 from app.services.agent.context.agent import HISTORY_REFERENCE_MARKER
 from app.services.agent.prompts import build_rewrite_prompt
 
@@ -23,8 +24,12 @@ def build_rewrite_messages(messages, feedback: str) -> list:
     仍须剔除——否则模型拿到结果后还会被"必须先重新调用工具"逼着重复调工具，
     消息链逐轮膨胀直至质检输入超长截断降级（实测 bug）。
     """
-    # 系统提示词是对话设定，保留；历史工具轮/重写轮/被否决候选一律丢弃
-    system_msgs = [m for m in messages if isinstance(m, SystemMessage)]
+    # 系统提示词是对话设定，保留；规划 SystemMessage（name=planner）是首轮
+    # 参考规划，重写轮重新推理不应被可能过时的规划约束，必须一并剔除
+    system_msgs = [
+        m for m in messages
+        if isinstance(m, SystemMessage) and getattr(m, "name", None) != PLANNER_MARKER
+    ]
     # 本轮用户问题：最后一条不带标记的 HumanMessage（带标记的是质检员修正指令或
     # 折叠的历史参考块，两者都不是本轮真实问题，必须一并排除）
     user_question = next(

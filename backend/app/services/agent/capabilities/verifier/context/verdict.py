@@ -41,6 +41,7 @@ def build_verdict_input(
     history_reference: list | None = None,
     available_tools: list | None = None,
     current_date: str | None = None,
+    planner_result: dict | None = None,
 ) -> tuple[list, list[dict]]:
     """构造发给质检员的完整输入，返回（精简对话消息, 序列化输入）。
 
@@ -154,6 +155,24 @@ def build_verdict_input(
         current_date = time.strftime("%Y-%m-%d", time.localtime())
     date_system = SystemMessage(content=f"当前日期：{current_date}")
 
+    # 规划参考：planner 的意图/目标/步骤注入质检上下文，供质检员判断回复是否
+    # 偏离用户目标（软参考，不强制）。不走消息流——dialogue_messages 过滤了
+    # 所有 SystemMessage，规划消息无法经消息流到达；此处用独立参数显式注入。
+    # 注意：规划本身可能不准确，不得以"不符合规划"作为唯一否决理由
+    planner_system = None
+    if planner_result:
+        planner_system = SystemMessage(
+            content=(
+                "【参考执行规划】"
+                f"意图：{planner_result.get('intent_l1', '')}/"
+                f"{planner_result.get('intent_l2', '')} "
+                f"目标：{planner_result.get('goal', '')} "
+                f"步骤：{planner_result.get('plan_steps', [])}\n"
+                "质检时可参考规划判断回复是否偏离用户目标，但规划本身可能不准确，"
+                "不得以'不符合规划'作为唯一否决理由。"
+            )
+        )
+
     # 工具调用参数映射：tool_call_id -> 调用参数。同一工具可能被多次调用且参数不同
     # （如两次 list_expenses_by_date 查不同日期区间），序列化时带上参数才能看出
     # 每条工具结果对应的查询条件，复盘才分得清"同一工具不同结果"的原因
@@ -174,6 +193,8 @@ def build_verdict_input(
     serialized.append({"role": "system", "content": date_system.content})
     if tools_system is not None:
         serialized.append({"role": "system", "content": tools_system.content})
+    if planner_system is not None:
+        serialized.append({"role": "system", "content": planner_system.content})
     for m in reduced:
         entry = {"role": getattr(m, "type", "unknown"), "content": m.content}
         if isinstance(m, ToolMessage):
@@ -192,6 +213,8 @@ def build_verdict_input(
     reduced = [date_system]
     if tools_system is not None:
         reduced.append(tools_system)
+    if planner_system is not None:
+        reduced.append(planner_system)
     reduced.extend([*reference, *tools_with_info])
     if candidate is not None:
         reduced.append(candidate)
@@ -204,6 +227,7 @@ async def run_verdict(
     history_reference: list | None = None,
     available_tools: list | None = None,
     current_date: str | None = None,
+    planner_result: dict | None = None,
 ) -> Verdict:
     """调用结构化输出 LLM，基于"参考历史 + 本轮数据"得到验证结论。
 
@@ -217,7 +241,7 @@ async def run_verdict(
     # 只需精简后的消息序列（reduced）发给质检员；序列化版本由 node.py 侧
     # 单独获取用于全链路落库，此处不消费
     reduced, _ = build_verdict_input(
-        messages, history_reference, available_tools, current_date
+        messages, history_reference, available_tools, current_date, planner_result
     )
     return await structured.ainvoke(
         [SystemMessage(content=VERIFY_PROMPT), *reduced]

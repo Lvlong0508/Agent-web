@@ -545,3 +545,45 @@ def test_build_verdict_input_excludes_read_skill_tool_result():
     ]
     reduced2, _ = build_verdict_input(messages_with_real_tool)
     assert any(isinstance(m, ToolMessage) and m.name == "list_expenses" for m in reduced2)
+
+
+def test_build_verdict_input_includes_planner_reference():
+    """verifier 输入应包含规划参考（作软参考，非强制校验标准）"""
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from app.services.agent.capabilities.verifier.context.verdict import build_verdict_input
+
+    messages = [
+        HumanMessage(content="查一下上周账单"),
+        AIMessage(content="上周共花了 500 元"),
+    ]
+    planner_result = {
+        "intent_l1": "QUERY",
+        "intent_l2": "QUERY_BY_DATE",
+        "goal": "查询上周账单",
+        "plan_steps": [{"step_id": 1, "action": "查询", "suggested_tools": [], "depends_on": []}],
+        "required_tools": ["list_expenses_by_date"],
+        "required_skills": [],
+        "confidence": 0.92,
+    }
+    reduced, serialized = build_verdict_input(messages, planner_result=planner_result)
+    # 规划以参考 SystemMessage 注入（软参考）
+    assert any(
+        isinstance(m, SystemMessage) and "参考执行规划" in m.content
+        for m in reduced
+    )
+    assert any("查询上周账单" in m["content"] for m in serialized if m["role"] == "system")
+
+
+def test_build_verdict_input_without_planner():
+    """无规划时不注入规划参考（行为不回归）"""
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from app.services.agent.capabilities.verifier.context.verdict import build_verdict_input
+
+    messages = [HumanMessage(content="hi"), AIMessage(content="你好")]
+    reduced, _ = build_verdict_input(messages)
+    assert not any(
+        isinstance(m, SystemMessage) and "参考执行规划" in m.content
+        for m in reduced
+    )

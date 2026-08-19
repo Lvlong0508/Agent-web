@@ -78,10 +78,12 @@ def make_verifier_node(tools: list | None = None):
             # 杜绝助手谎称无工具逃避（工具列表来自图构建时绑定的 tools 闭包）
             available_tools = [t.name for t in tools] if tools else []
             _, verdict_input = build_verdict_input(
-                state["messages"], state.get("history_reference"), available_tools
+                state["messages"], state.get("history_reference"), available_tools,
+                planner_result=state.get("planner_result"),
             )
             verdict = await run_verdict(
-                llm, state["messages"], state.get("history_reference"), available_tools
+                llm, state["messages"], state.get("history_reference"), available_tools,
+                planner_result=state.get("planner_result"),
             )
             # 质检判定一行结果：短小，供实时确认"过没过"；细节（候选内容/工具
             # 结果）已全量落库到 agent_runs（verdict_input/verdict），终端不重复。

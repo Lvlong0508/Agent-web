@@ -108,7 +108,7 @@ async def test_astream_runs_full_graph_with_title_and_tokens():
     full_text = ""
     # verifier 节点真实调用 run_verdict 需要结构化输出，fake LLM 不支持，
     # 这里 patch 成直接返回"准确"的 Verdict，让验证链路走 pass 正常结束
-    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
+    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None, planner_result=None):
         return Verdict(is_accurate=True, issues="")
 
     with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
@@ -170,7 +170,7 @@ async def test_title_failure_does_not_block_chat():
     graph = build_agent_graph(conv_repo)
     full_text = ""
     # verifier 节点真实调用 run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
-    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
+    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None, planner_result=None):
         return Verdict(is_accurate=True, issues="")
 
     with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
@@ -218,7 +218,7 @@ async def test_generate_title_node_exposes_title_in_updates():
     graph = build_agent_graph(conv_repo)
     updates = []
     # verifier 节点真实调用 run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
-    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
+    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None, planner_result=None):
         return Verdict(is_accurate=True, issues="")
 
     with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
@@ -263,7 +263,7 @@ async def test_agent_node_thinking_switch():
 
     graph = build_agent_graph(conv_repo)
     # verifier 节点真实调用 run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
-    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
+    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None, planner_result=None):
         return Verdict(is_accurate=True, issues="")
 
     with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
@@ -312,7 +312,7 @@ async def test_agent_node_thinking_defaults_off():
 
     graph = build_agent_graph(conv_repo)
     # verifier 节点真实调用 run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
-    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
+    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None, planner_result=None):
         return Verdict(is_accurate=True, issues="")
 
     with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
@@ -349,7 +349,7 @@ async def test_astream_defaults_to_ollama_without_model():
 
     graph = build_agent_graph(conv_repo)
     # verifier 节点真实调用 run_verdict 需要结构化输出，fake LLM 不支持，patch 成直接返回准确
-    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
+    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None, planner_result=None):
         return Verdict(is_accurate=True, issues="")
 
     with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
@@ -487,7 +487,7 @@ async def test_verifier_accurate_ends_graph():
     agent_llm = GenericFakeChatModel(messages=iter([AIMessage(content="回复")]))
 
     # verifier 的 LLM 调用被替换为直接返回 Verdict（避免真实结构化输出依赖）
-    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
+    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None, planner_result=None):
         return Verdict(is_accurate=True, issues="")
 
     graph = build_agent_graph(conv_repo)
@@ -564,7 +564,7 @@ async def test_verifier_retry_then_pass_loops_through_agent():
     # 第一次验证判不准，第二次判准确
     calls = {"n": 0}
 
-    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
+    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None, planner_result=None):
         calls["n"] += 1
         if calls["n"] == 1:
             return Verdict(is_accurate=False, issues="金额错误")
@@ -612,7 +612,7 @@ async def test_verifier_fail_when_retries_exhausted():
         return first_llm if streaming else rewrite_llm
 
     # 每次都判不准
-    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
+    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None, planner_result=None):
         return Verdict(is_accurate=False, issues="始终不准")
 
     graph = build_agent_graph(conv_repo)
@@ -669,7 +669,7 @@ async def test_rewrite_round_input_excludes_rejected_candidate():
     # 第一次验证判不准（触发重写），重写后判准确（走 pass，只重写一轮）
     calls = {"n": 0}
 
-    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None):
+    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None, planner_result=None):
         calls["n"] += 1
         if calls["n"] == 1:
             return Verdict(is_accurate=False, issues="金额错误")
