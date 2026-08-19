@@ -412,6 +412,15 @@ def test_agent_state_declares_verdict():
     assert "verdict" in graph.builder.channels
 
 
+def test_agent_state_declares_planner_fields():
+    """planner_result / planner_status / planner_reason 必须在状态 schema 中声明，
+    否则 LangGraph 会静默丢弃该键，规划结果无法注入 agent 上下文"""
+    graph = build_agent_graph(MagicMock())
+    assert "planner_result" in graph.builder.channels
+    assert "planner_status" in graph.builder.channels
+    assert "planner_reason" in graph.builder.channels
+
+
 def test_agent_state_declares_verdict_input():
     """verdict_input 必须在状态 schema 中声明，否则 LangGraph 会静默丢弃该键，
     全链路记录就拿不到发给质检员的输入（role=input_verdict）"""

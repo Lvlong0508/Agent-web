@@ -44,3 +44,14 @@ class AgentState(MessagesState):
     # 发给质检员的完整输入（序列化消息列表）：必须声明才能经 updates 流推给
     # chat_service，用于全链路记录追加 role=input_verdict 条目（评估质检效果）
     verdict_input: list
+
+    # ---- planner 能力贡献 ----
+    # 规划结果（planner 输出的完整 JSON）；None=降级/未执行。必须声明才能经
+    # updates 流推给 chat_service / verifier（未声明的键会被 LangGraph 静默丢弃）
+    planner_result: dict | None
+    # 规划状态：planned（成功）/ skipped（低置信度仍注入）/ failed（失败降级）。
+    # 必须声明才能经 updates 流供上层落库与监控
+    planner_status: str
+    # 降级原因（json_parse_error / timeout / schema_invalid / low_confidence）；
+    # 空串表示无降级。供落库追溯规划失败原因
+    planner_reason: str
