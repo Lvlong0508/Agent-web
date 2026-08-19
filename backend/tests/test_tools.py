@@ -237,6 +237,7 @@ async def test_contextvar_propagates_into_agent_tools():
         with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
             with patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm), \
                  patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm), \
+                 patch("app.services.agent.capabilities.planner.node.create_llm", side_effect=fake_create_llm), \
                  patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm):
                 async for _ in graph.astream(
                     {"messages": [HumanMessage(content="记一笔账")], "conv_id": "c1", "user_id": "user-tool", "model": agent_settings.MODEL_OLLAMA},
@@ -319,6 +320,7 @@ async def test_agent_tool_loop_returns_final_reply_and_filters_mid_round():
         with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
             with patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm), \
                  patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm), \
+                 patch("app.services.agent.capabilities.planner.node.create_llm", side_effect=fake_create_llm), \
                  patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm):
                 async for line in service.chat_stream(
                     "c1", "查一下账单", agent_settings.MODEL_OLLAMA, thinking=False

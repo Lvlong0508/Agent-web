@@ -25,6 +25,20 @@ def mock_conv_repo():
     return MagicMock()
 
 
+def _planner_llm_factory(**kwargs):
+    """planner 节点的 fake LLM 工厂：每次调用返回新实例（迭代器独立）。
+
+    planner 节点每次只 ainvoke 一次，返回合法规划 JSON 即可。用独立工厂避免
+    复用 title/agent 的 fake LLM 导致迭代器被 planner 提前消费耗尽。
+    """
+    plan_json = (
+        '{"intent_l1": "QUERY", "intent_l2": "QUERY_BY_DATE", "goal": "查询账单",'
+        ' "plan_steps": [{"step_id": 1, "action": "查询账单", "suggested_tools": [], "depends_on": []}],'
+        ' "required_tools": [], "required_skills": [], "confidence": 0.9}'
+    )
+    return GenericFakeChatModel(messages=iter([AIMessage(content=plan_json)]))
+
+
 def test_build_agent_graph_registers_nodes(mock_conv_repo):
     """测试图注册了 generate_title / agent / tools 三个节点"""
     graph = build_agent_graph(mock_conv_repo)
@@ -100,6 +114,7 @@ async def test_astream_runs_full_graph_with_title_and_tokens():
     with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
         with patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm), \
              patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm), \
+             patch("app.services.agent.capabilities.planner.node.create_llm", side_effect=_planner_llm_factory), \
              patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm):
             async for item in graph.astream(
                 {
@@ -161,6 +176,7 @@ async def test_title_failure_does_not_block_chat():
     with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
         with patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm), \
              patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm), \
+             patch("app.services.agent.capabilities.planner.node.create_llm", side_effect=_planner_llm_factory), \
              patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm):
             async for item in graph.astream(
                 {
@@ -208,6 +224,7 @@ async def test_generate_title_node_exposes_title_in_updates():
     with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
         with patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm), \
              patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm), \
+             patch("app.services.agent.capabilities.planner.node.create_llm", side_effect=_planner_llm_factory), \
              patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm):
             async for mode, data in graph.astream(
                 {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc", "model": agent_settings.MODEL_OLLAMA},
@@ -252,6 +269,7 @@ async def test_agent_node_thinking_switch():
     with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
         with patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm), \
              patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm), \
+             patch("app.services.agent.capabilities.planner.node.create_llm", side_effect=_planner_llm_factory), \
              patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm):
             async for _item in graph.astream(
                 {
@@ -300,6 +318,7 @@ async def test_agent_node_thinking_defaults_off():
     with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
         with patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm), \
              patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm), \
+             patch("app.services.agent.capabilities.planner.node.create_llm", side_effect=_planner_llm_factory), \
              patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm):
             async for _item in graph.astream(
                 {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc"},
@@ -336,6 +355,7 @@ async def test_astream_defaults_to_ollama_without_model():
     with patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict):
         with patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm), \
              patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm), \
+             patch("app.services.agent.capabilities.planner.node.create_llm", side_effect=_planner_llm_factory), \
              patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm):
             async for _item in graph.astream(
                 {"messages": [HumanMessage(content="hi")], "conv_id": "c1", "user_id": "user-abc"},
@@ -421,6 +441,23 @@ def test_agent_state_declares_planner_fields():
     assert "planner_reason" in graph.builder.channels
 
 
+def test_build_graph_registers_planner_node(mock_conv_repo):
+    """图注册了 planner 节点"""
+    graph = build_agent_graph(mock_conv_repo)
+    nodes = list(graph.get_graph().nodes)
+    assert "planner" in nodes
+
+
+def test_planner_runs_before_agent():
+    """planner 节点必须在 agent 之前执行（START → planner → agent）"""
+    graph = build_agent_graph(MagicMock())
+    graph_struct = graph.get_graph()
+    edges = graph_struct.edges
+    # 注意：get_graph() 里隐式 START/END 节点名是 __start__/__end__（非常量 START）
+    assert any(e.source == "__start__" and e.target == "planner" for e in edges)
+    assert any(e.source == "planner" and e.target == "agent" for e in edges)
+
+
 def test_agent_state_declares_verdict_input():
     """verdict_input 必须在状态 schema 中声明，否则 LangGraph 会静默丢弃该键，
     全链路记录就拿不到发给质检员的输入（role=input_verdict）"""
@@ -459,6 +496,7 @@ async def test_verifier_accurate_ends_graph():
         patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict),
         patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=lambda streaming=True, alias=None, enable_thinking=True, max_tokens=None: agent_llm),
         patch("app.services.agent.capabilities.title.create_llm", side_effect=lambda streaming=True, alias=None, enable_thinking=True, max_tokens=None: agent_llm),
+        patch("app.services.agent.capabilities.planner.node.create_llm", side_effect=_planner_llm_factory),
         patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=lambda streaming=True, alias=None, enable_thinking=True, max_tokens=None: agent_llm),
     ):
         async for mode, data in graph.astream(
@@ -492,6 +530,7 @@ async def test_verifier_degrades_to_pass_when_llm_fails():
         patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=boom_verdict),
         patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=lambda streaming=True, alias=None, enable_thinking=True, max_tokens=None: agent_llm),
         patch("app.services.agent.capabilities.title.create_llm", side_effect=lambda streaming=True, alias=None, enable_thinking=True, max_tokens=None: agent_llm),
+        patch("app.services.agent.capabilities.planner.node.create_llm", side_effect=_planner_llm_factory),
         patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=lambda streaming=True, alias=None, enable_thinking=True, max_tokens=None: agent_llm),
     ):
         async for mode, data in graph.astream(
@@ -537,6 +576,7 @@ async def test_verifier_retry_then_pass_loops_through_agent():
         patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict),
         patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm),
         patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm),
+        patch("app.services.agent.capabilities.planner.node.create_llm", side_effect=_planner_llm_factory),
         patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm),
     ):
         async for mode, data in graph.astream(
@@ -581,6 +621,7 @@ async def test_verifier_fail_when_retries_exhausted():
         patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict),
         patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm),
         patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm),
+        patch("app.services.agent.capabilities.planner.node.create_llm", side_effect=_planner_llm_factory),
         patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm),
     ):
         async for mode, data in graph.astream(
@@ -639,6 +680,7 @@ async def test_rewrite_round_input_excludes_rejected_candidate():
         patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict),
         patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm),
         patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm),
+        patch("app.services.agent.capabilities.planner.node.create_llm", side_effect=_planner_llm_factory),
         patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm),
     ):
         async for mode, data in graph.astream(
