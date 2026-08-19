@@ -12,6 +12,8 @@ from app.config.settings import settings
 from app.models.agent_run import AgentRun
 from app.models.conversation import Conversation
 from app.repositories.agent_run_repo import AgentRunRepo
+from app.schemas.agent_run import AgentRunPage
+from app.services.agent_run_service import AgentRunService
 from app.services.chat_service import ChatService
 
 
@@ -367,3 +369,85 @@ async def test_chat_stream_records_verifier_verdict_in_trace():
         assert run.messages.index(inputs[0]) < run.messages.index(verdicts[0])
     finally:
         current_user_id.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_agent_run_service_create():
+    """插入：service 内部构造 AgentRun 后交给 repo，返回 repo 结果"""
+    db = MagicMock()
+    service = AgentRunService(db)
+    service.repo.create = AsyncMock(return_value=None)
+
+    result = await service.create(
+        conversation_id="c1", user_id="u1", model="ollama",
+        status="ok", messages=[{"role": "user", "content": "你好"}],
+        trace_id="t1", error=None,
+    )
+
+    # 透传完整 AgentRun 对象（含默认值：messages 空、status ok、error None）
+    run = service.repo.create.await_args.args[0]
+    assert isinstance(run, AgentRun)
+    assert run.conversation_id == "c1"
+    assert run.trace_id == "t1"
+    assert run.messages == [{"role": "user", "content": "你好"}]
+    assert result is None  # 返回 repo.create 的结果
+
+
+@pytest.mark.asyncio
+async def test_agent_run_service_create_defaults():
+    """插入默认值：status=ok、messages 空列表、trace_id 空串、error None"""
+    db = MagicMock()
+    service = AgentRunService(db)
+    service.repo.create = AsyncMock(return_value=None)
+
+    await service.create(conversation_id="c1", user_id="u1", model="ollama")
+
+    run = service.repo.create.await_args.args[0]
+    assert run.status == "ok"
+    assert run.messages == []
+    assert run.trace_id == ""
+    assert run.error is None
+
+
+@pytest.mark.asyncio
+async def test_agent_run_service_list():
+    """分页查询：默认全量；按 user_id/conversation_id 组装过滤；分页参数钳制"""
+    db = MagicMock()
+    service = AgentRunService(db)
+    now = datetime.now(timezone.utc)
+    items = [AgentRun(conversation_id="c1", user_id="u1", model="ollama")]
+    service.repo.list_paged = AsyncMock(return_value=(items, 3))
+
+    # 默认：不过滤、page=1、page_size=20
+    page = await service.list()
+    service.repo.list_paged.assert_awaited_once_with({}, 1, 20)
+    assert page.total == 3
+    assert page.total_pages == 1  # ceil(3/20) = 1
+    assert page.items == items
+    assert page.page == 1
+    assert page.page_size == 20
+    assert isinstance(page, AgentRunPage)
+
+    # 可选过滤 + 参数钳制：page 0→1，page_size 1000→100
+    page = await service.list(page=0, page_size=1000, user_id="u1", conversation_id="c1")
+    service.repo.list_paged.assert_called_with({"user_id": "u1", "conversation_id": "c1"}, 1, 100)
+    assert page.page == 1
+    assert page.page_size == 100
+
+
+@pytest.mark.asyncio
+async def test_agent_run_service_delete_many():
+    """批量删除：透传 run_ids 到 repo，返回删除条数；空列表直接返回 0 不查库"""
+    db = MagicMock()
+    service = AgentRunService(db)
+    service.repo.delete_many = AsyncMock(return_value=2)
+
+    n = await service.delete_many(["r1", "r2"])
+    assert n == 2
+    service.repo.delete_many.assert_awaited_once_with(["r1", "r2"])
+
+    # 空列表早退：不发无意义的 Mongo 查询
+    service.repo.delete_many = AsyncMock()
+    n = await service.delete_many([])
+    assert n == 0
+    service.repo.delete_many.assert_not_called()
