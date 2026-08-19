@@ -60,7 +60,7 @@ def test_collect_trace_verifier():
 
 
 def test_collect_trace_planner():
-    """updates 流收集：planner 节点产出的规划 SystemMessage 进 trace（含 name 标记）"""
+    """updates 流收集：planner 节点产出的规划消息进 trace，role 标为 planner（直观区分）"""
     session = StreamSession()
     updates = {
         "planner": {
@@ -68,7 +68,8 @@ def test_collect_trace_planner():
         }
     }
     session.collect_trace(updates)
-    assert session.trace_messages[0]["role"] == "system"
+    # 规划消息独立角色 planner，不再与 system 提示词混在一起，方便查记录一眼定位
+    assert session.trace_messages[0]["role"] == "planner"
     assert session.trace_messages[0]["content"] == "【执行规划参考】..."
 
 
