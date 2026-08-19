@@ -10,10 +10,9 @@ class Settings(BaseSettings):
 
     # backend 根目录：settings.py 在 backend/app/config/，parents[2] 即 backend/
     # （parents[0]=config, [1]=app, [2]=backend，实测验证）
+    # 注意：SKILLS_DIR 已迁移到 app/config/agent_settings.py（agent 模块配置独立）。
+    # 模型字段（LLM_MODEL / DASHSCOPE_MODEL / MODEL_*）将在 Task 2 删除
     BASE_DIR: ClassVar[Path] = Path(__file__).resolve().parents[2]
-
-    # Skill 根目录配置：相对 BASE_DIR 的路径，可经 .env 调整
-    SKILLS_DIR: str = "skills"
 
     # MongoDB 连接配置
     MONGODB_URI: str

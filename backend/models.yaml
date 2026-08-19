@@ -1,0 +1,21 @@
+# 模型注册表：alias → 模型定义。改此文件即可新增/调整模型，代码零改动。
+# 注意：alias（key）即前端模型下拉值，前后端必须保持一致。
+# 敏感信息（api_key / base_url）在 settings.py 全局配置，这里不写。
+model_registry:
+  # 前端可选 · 本地 Ollama
+  ollama-qwen3.5:
+    provider: ollama
+    model: qwen3.5:9b
+
+  # 前端可选 · 通义千问主模型（思考默认开）
+  qwen3.7-flash:
+    provider: dashscope
+    model: qwen3.7-flash
+    enable_thinking: true
+
+  # 内部 · planner 规划模型（思考开、非流式）
+  planner:
+    provider: dashscope
+    model: qwen3.7-flash-2026-07-15
+    enable_thinking: true
+    streaming: false

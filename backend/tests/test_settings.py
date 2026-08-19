@@ -1,5 +1,5 @@
 # backend/tests/test_settings.py
-"""settings 配置测试：BASE_DIR 定位 backend 根目录、SKILLS_DIR 默认值"""
+"""settings 配置测试：BASE_DIR 定位 backend 根目录、SKILLS_DIR 迁移归属"""
 
 from pathlib import Path
 
@@ -14,6 +14,8 @@ def test_base_dir_points_to_backend_root():
     assert settings.BASE_DIR.name == "backend"
 
 
-def test_skills_dir_default_is_relative():
-    """SKILLS_DIR 默认相对路径 "skills"，可经 .env 调整为其他位置"""
-    assert settings.SKILLS_DIR == "skills"
+def test_skills_dir_migrated_to_agent_settings():
+    """SKILLS_DIR 已迁移到 AgentSettings：agent 模块配置独立于基础设施配置"""
+    from app.config.agent_settings import agent_settings
+
+    assert agent_settings.SKILLS_DIR == "skills"
