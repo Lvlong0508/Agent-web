@@ -1,5 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import json
+
 import pytest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -696,3 +698,58 @@ async def test_rewrite_round_input_excludes_rejected_candidate():
     assert "首次回复" not in contents  # 被否决的首轮候选不得出现在重写轮输入中
     assert "我今天吃了8000块饭，对不？" in contents  # 本轮用户问题保留
     assert any("金额错误" in c for c in contents)  # 重写指令携带修正意见
+
+
+@pytest.mark.asyncio
+async def test_planner_full_flow_injects_plan_to_agent():
+    """集成：planner 成功产出规划并注入，agent 能读到规划 SystemMessage"""
+    conv = MagicMock()
+    conv.title = "已有标题"
+    conv_repo = MagicMock()
+    conv_repo.get_by_id = AsyncMock(return_value=conv)
+    conv_repo.update_title = AsyncMock(return_value=None)
+
+    # planner 用非流式 LLM（fake 返回规划 JSON），agent 用流式 LLM（返回回复）
+    planner_llm = GenericFakeChatModel(messages=iter([AIMessage(content=json.dumps({
+        "intent_l1": "QUERY",
+        "intent_l2": "QUERY_BY_DATE",
+        "goal": "查询上周账单",
+        "plan_steps": [{"step_id": 1, "action": "查询", "suggested_tools": [], "depends_on": []}],
+        "required_tools": [],
+        "required_skills": [],
+        "confidence": 0.92,
+    }))]))
+    agent_llm = GenericFakeChatModel(messages=iter([AIMessage(content="好的，我来查")]))
+
+    def fake_create_llm(alias=None, streaming=True, enable_thinking=True, max_tokens=None):
+        # planner 用注册表 planner 条目（非流式），其余（agent/标题/质检）用流式 agent LLM
+        if alias == agent_settings.PLANNER_MODEL_ALIAS:
+            return planner_llm
+        return agent_llm
+
+    graph = build_agent_graph(conv_repo)
+
+    async def fake_run_verdict(llm, messages, history_reference=None, available_tools=None, planner_result=None):
+        return Verdict(is_accurate=True, issues="")
+
+    planner_seen = False
+    with (
+        patch("app.services.agent.capabilities.verifier.node.run_verdict", side_effect=fake_run_verdict),
+        patch("app.services.agent.capabilities.core_agent.node.create_llm", side_effect=fake_create_llm),
+        patch("app.services.agent.capabilities.planner.node.create_llm", side_effect=fake_create_llm),
+        patch("app.services.agent.capabilities.title.create_llm", side_effect=fake_create_llm),
+        patch("app.services.agent.capabilities.verifier.node.create_llm", side_effect=fake_create_llm),
+    ):
+        async for mode, data in graph.astream(
+            {"messages": [HumanMessage(content="查一下上周账单")], "conv_id": "c1",
+             "user_id": "user-abc", "model": agent_settings.MODEL_OLLAMA},
+            stream_mode=["messages", "updates"],
+        ):
+            if mode == "updates" and "planner" in data:
+                planner_seen = True
+                # 规划成功注入且带 name=planner 标记
+                assert data["planner"]["planner_status"] == "planned"
+                assert data["planner"]["messages"][0].name == "planner"
+
+    # 图正常运行结束（planner 注入不破坏主流程），且 planner 输出经 updates 可见
+    assert planner_seen, "planner 节点应产出 updates 输出"
