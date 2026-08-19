@@ -72,7 +72,7 @@ def test_chat_api_with_user_header_succeeds(client):
 
     from app.middleware.mongodb import get_db
 
-    # 假 db：ChatService 用它构造 ConversationRepo/MessageRepo/AgentRunRepo。
+    # 假 db：ChatService 用它构造 ConversationRepo/MessageRepo/AgentRunService。
     # 关键是把 conversations 集合的 insert_one 配成 AsyncMock（可 await），
     # 让 create 真正走通，从而验证 contextvar 注入 + 复位全链路。
     fake_db = MagicMock()

@@ -33,8 +33,8 @@ def chat_service(mock_db):
     """返回注入 mock db 的 ChatService"""
     service = ChatService(mock_db)
     # 全链路落库在旧测试中不关心，统一 mock 掉 create，避免调用真实集合
-    service.agent_run_repo = MagicMock()
-    service.agent_run_repo.create = AsyncMock(return_value=None)
+    service.agent_run_service = MagicMock()
+    service.agent_run_service.create = AsyncMock(return_value=None)
     return service
 
 
@@ -494,7 +494,7 @@ async def test_chat_stream_error_returns_friendly_message_and_records(chat_servi
     chat_service.conv_repo.get_by_id = AsyncMock(return_value=conv)
     chat_service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
     chat_service.msg_repo.create = AsyncMock(return_value=None)
-    chat_service.agent_run_repo.create = AsyncMock(return_value=None)
+    chat_service.agent_run_service.create = AsyncMock(return_value=None)
 
     async def boom_astream(input, **kwargs):
         """假的 graph.astream：首次迭代即抛 ConnectionError（模拟底层模型不可用）"""
@@ -517,11 +517,11 @@ async def test_chat_stream_error_returns_friendly_message_and_records(chat_servi
     assert any(f'"error": "{USER_FRIENDLY_ERROR}"' in t for t in tokens)
     assert all("Ollama" not in t for t in tokens)
     # 管理员通道：agent_runs 落库 error 字段携带完整错误消息与 trace_id
-    assert chat_service.agent_run_repo.create.await_count == 1
-    run = chat_service.agent_run_repo.create.await_args.args[0]
-    assert run.status == "error"
-    assert "Ollama down" in run.error
-    assert run.trace_id and len(run.trace_id) == 32
+    assert chat_service.agent_run_service.create.await_count == 1
+    run = chat_service.agent_run_service.create.await_args.kwargs
+    assert run["status"] == "error"
+    assert "Ollama down" in run["error"]
+    assert run["trace_id"] and len(run["trace_id"]) == 32
 
 
 @pytest.mark.asyncio

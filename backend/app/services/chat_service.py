@@ -11,8 +11,7 @@ from app.auth import get_current_user_id_or_raise
 from app.repositories.conversation_repo import ConversationRepo
 from app.repositories.message_repo import MessageRepo
 from app.models.message import Message
-from app.models.agent_run import AgentRun
-from app.repositories.agent_run_repo import AgentRunRepo
+from app.services.agent_run_service import AgentRunService
 # agent 模块公共 API 统一从包出口导入，避免深层路径散落
 from app.services.agent import (
     EventRouter,
@@ -47,7 +46,7 @@ class ChatService:
     def __init__(self, db: AsyncIOMotorDatabase, graph=None, session_factory=None):
         self.conv_repo = ConversationRepo(db)
         self.msg_repo = MessageRepo(db)
-        self.agent_run_repo = AgentRunRepo(db)  # 全链路运行记录仓库
+        self.agent_run_service = AgentRunService(db)  # 全链路运行记录业务层
         # 未显式传入时自动构建 agent 图（测试可注入 mock）；
         # 传入 session_factory 则给图绑定 MySQL 账单工具，让 agent 能调用
         tools = get_tools(session_factory) if session_factory else []
@@ -114,7 +113,8 @@ class ChatService:
         全部调用点均显式传入，故不设默认值，防止未来调用方漏传
         """
         try:
-            await self.agent_run_repo.create(AgentRun(
+            # 委托 AgentRunService 落库：字段语义收敛到 service 层，这里只传业务数据
+            await self.agent_run_service.create(
                 conversation_id=conv_id,
                 user_id=user_id,
                 model=model,
@@ -122,7 +122,7 @@ class ChatService:
                 error=error,
                 messages=messages,
                 trace_id=trace_id,
-            ))
+            )
         except Exception:
             # 落库失败（如数据库不可用）不影响聊天主流程：静默跳过
             pass
