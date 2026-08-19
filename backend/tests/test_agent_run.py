@@ -63,6 +63,51 @@ async def test_agent_run_repo_list_by_conversation():
 
 
 @pytest.mark.asyncio
+async def test_agent_run_repo_list_paged():
+    """分页查询：先 count_documents 统计总数，再按 created_at 倒序 skip/limit"""
+    db = MagicMock()
+    now = datetime.now(timezone.utc)
+    repo = AgentRunRepo(db)
+    # 分页链：find → sort → skip → limit → to_list；count_documents 独立统计总数
+    repo.collection.count_documents = AsyncMock(return_value=3)
+    repo.collection.find.return_value.sort.return_value.skip.return_value.limit.return_value.to_list = AsyncMock(
+        return_value=[{
+            "_id": "r1", "conversation_id": "c1", "user_id": "u1",
+            "model": "ollama", "status": "ok", "error": None,
+            "messages": [], "created_at": now,
+        }]
+    )
+
+    items, total = await repo.list_paged({"user_id": "u1"}, 2, 10)
+
+    # 过滤条件原样传给 count 与 find
+    repo.collection.count_documents.assert_awaited_once_with({"user_id": "u1"})
+    repo.collection.find.assert_called_once_with({"user_id": "u1"})
+    # 创建时间倒序（最新在前），第 2 页跳过前 10 条、取 10 条
+    repo.collection.find.return_value.sort.assert_called_once_with("created_at", -1)
+    repo.collection.find.return_value.sort.return_value.skip.assert_called_once_with(10)
+    repo.collection.find.return_value.sort.return_value.skip.return_value.limit.assert_called_once_with(10)
+    assert total == 3
+    assert len(items) == 1
+    assert items[0].conversation_id == "c1"
+
+
+@pytest.mark.asyncio
+async def test_agent_run_repo_delete_many():
+    """批量删除：$in 命中即删，返回实际删除条数"""
+    db = MagicMock()
+    repo = AgentRunRepo(db)
+    result_mock = MagicMock()
+    result_mock.deleted_count = 2  # r3 不存在，实际只删掉 2 条
+    repo.collection.delete_many = AsyncMock(return_value=result_mock)
+
+    n = await repo.delete_many(["r1", "r2", "r3"])
+
+    assert n == 2
+    repo.collection.delete_many.assert_awaited_once_with({"_id": {"$in": ["r1", "r2", "r3"]}})
+
+
+@pytest.mark.asyncio
 async def test_chat_stream_saves_full_trace_without_tools():
     """无工具调用：run 记录含 user + assistant 最终回复，status=ok"""
     token = current_user_id.set("anonymous")
