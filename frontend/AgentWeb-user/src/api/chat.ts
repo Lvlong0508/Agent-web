@@ -27,13 +27,14 @@ export function getMessages(convId: string) {
 
 // --- 流式聊天（使用原生 fetch + ReadableStream，支持 SSE）---
 
-// 回调类型：收到 token / 标题 / 重写中 / 最终版 / 流结束 / 出错
+// 回调类型：收到 token / 标题 / 重写中 / 最终版 / 流结束 / 出错 / 规划进度
 type TokenHandler = (token: string) => void
 type TitleHandler = (title: string) => void
 type RewritingHandler = () => void
 type FinalHandler = (text: string) => void
 type DoneHandler = () => void
 type ErrorHandler = (message: string) => void
+type PlannerHandler = (status: string, reason: string, costTimeMs: number) => void
 
 /**
  * 发送消息并通过 SSE 接收流式回复
@@ -57,6 +58,7 @@ type ErrorHandler = (message: string) => void
  * @param onFinal - 收到验证通过后的最终版完整文本的回调
  * @param onDone - 流结束回调
  * @param onError - 错误回调
+ * @param onPlanner - 收到规划进度事件的回调（planned/skipped/failed + 耗时）
  * @returns AbortController - 用于取消请求
  */
 export function sendMessageStream(
@@ -70,6 +72,7 @@ export function sendMessageStream(
   onFinal: FinalHandler,
   onDone: DoneHandler,
   onError: ErrorHandler,
+  onPlanner: PlannerHandler,
 ): AbortController {
   const controller = new AbortController()
   // buffer 保留不完整的最后一行（SSE 按 \n 分行，chunk 可能在行中间截断）
@@ -107,6 +110,14 @@ export function sendMessageStream(
         if (parsed.rewriting) onRewriting()
         // 验证通过后的最终版完整文本：前端替换占位并打字机渲染
         if (parsed.final) onFinal(parsed.final)
+        // 规划进度：后端订阅 planner 事件后推送，前端据此显示"正在规划/完成/失败"
+        if (parsed.planner) {
+          onPlanner(
+            parsed.planner.status || '',
+            parsed.planner.reason || '',
+            parsed.planner.cost_time_ms || 0,
+          )
+        }
         // 后端发生内部异常：只下发统一友好文案（用户无需知道内部细节）。
         // 收到即终止流并调用 onError 通知 UI 弹出提示
         if (parsed.error) {

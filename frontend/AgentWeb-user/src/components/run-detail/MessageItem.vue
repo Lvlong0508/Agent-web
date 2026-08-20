@@ -10,6 +10,17 @@
     <!-- 展开内容区：限高 400px 内部滚动，防止超长提示词撑爆抽屉 -->
     <Transition name="expand">
       <div v-if="isExpanded" class="message-body">
+        <!-- 工具调用块：assistant 声明调用的工具（name + 参数 + 调用id），
+             与 tool 结果消息的 tool_call_id 对应，便于还原调用链 -->
+        <div v-if="msg.tool_calls && msg.tool_calls.length" class="tool-calls-block">
+          <div v-for="(tc, i) in msg.tool_calls" :key="tc.id || i" class="tool-call-item">
+            <div class="tool-call-header">
+              <span class="tool-call-name">{{ tc.name }}</span>
+              <span class="tool-call-id">{{ truncateId(tc.id) }}</span>
+            </div>
+            <JsonViewer :data="tc.args" />
+          </div>
+        </div>
         <ContentRenderer :content="msg.content" :role="msg.role" />
       </div>
     </Transition>
@@ -18,7 +29,8 @@
 
 <script setup lang="ts">
 import { computed, inject } from 'vue'
-import type { AgentMessage } from '@/types/run'
+import JsonViewer from './JsonViewer.vue'
+import type { AgentMessage, MessageContent } from '@/types/run'
 import { getRoleConfig } from './constants'
 import ContentRenderer from './ContentRenderer.vue'
 
@@ -40,9 +52,22 @@ const badgeStyle = computed(() => ({
   color: config.value.textColor,
 }))
 
-// 差异化摘要：字符串取首行截断 / 数组显示"共 N 条消息" / JSON 显示质检结果
+// 差异化摘要：工具调用优先 / tool 消息显工具名 / 字符串取首行截断 / 数组计数 / JSON 判定
 const summary = computed(() => {
   const { content } = props.msg
+
+  // 1) assistant 带 tool_calls：显示"调用工具 X"，替代空 content 的空摘要
+  if (props.msg.tool_calls && props.msg.tool_calls.length) {
+    const names = props.msg.tool_calls.map(tc => tc.name).join('、')
+    return `调用工具 ${names}`
+  }
+
+  // 2) tool 结果消息：优先显示工具名 + 概要，不再直接看一整行 JSON
+  if (props.msg.role === 'tool' && props.msg.name) {
+    const hint = toolResultHint(content)
+    return hint ? `${props.msg.name} · ${hint}` : props.msg.name
+  }
+
   const style = config.value.summaryStyle
 
   if (style === 'count' && Array.isArray(content)) {
@@ -63,6 +88,24 @@ const summary = computed(() => {
 
   return String(content)
 })
+
+// tool 结果概要：content 是 JSON 字符串时取关键字段（total / items 条数），
+// 解析失败退回首行截断，让摘要比"整段 JSON 挤一行"可读得多
+function toolResultHint(content: MessageContent): string {
+  if (typeof content !== 'string' || !content) return ''
+  try {
+    const parsed = JSON.parse(content)
+    if (parsed && typeof parsed === 'object') {
+      if ('total' in parsed) return `共 ${parsed.total} 条`
+      const items = (parsed as Record<string, unknown>).items
+      if (Array.isArray(items)) return `共 ${items.length} 项`
+    }
+  } catch {
+    // 非 JSON（如纯文本错误），走首行截断兜底
+  }
+  const firstLine = content.split('\n')[0] || ''
+  return firstLine.length > 40 ? firstLine.slice(0, 40) + '…' : firstLine
+}
 
 function truncateId(id: string) {
   return id.length > 12 ? id.slice(0, 12) + '…' : id
@@ -135,4 +178,23 @@ function toggle() {
 .expand-leave-active { transition: all 0.25s ease; max-height: 500px; opacity: 1; }
 .expand-enter-from,
 .expand-leave-to { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
+
+/* 工具调用块：浅青底圆角卡片，与 tool 角色徽标同色系 */
+.tool-calls-block { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+
+.tool-call-item {
+  border: 1px solid #E0F7FA;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #F7FDFE;
+}
+
+.tool-call-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.tool-call-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #00BCD4;
+  font-family: 'SF Mono', 'Menlo', monospace;
+}
+.tool-call-id { font-size: 11px; color: #8E8E93; font-family: 'SF Mono', 'Menlo', monospace; }
 </style>

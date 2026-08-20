@@ -367,6 +367,15 @@
   40% { opacity: 1; }
 }
 
+/* 规划进度小字：思考提示下方的次级状态行，弱化配色不抢正文 */
+.planner-status {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-secondary, #86868b);
+  font-weight: 400;
+}
+
 /* 消息气泡：助手白底、用户蓝底，单侧小圆角做成"气泡尾巴" */
 .message {
   max-width: 100%;

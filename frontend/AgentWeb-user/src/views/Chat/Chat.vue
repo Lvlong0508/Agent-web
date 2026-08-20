@@ -7,6 +7,7 @@ import {
   JUMP_TO_BOTTOM, RECENT_CONVERSATIONS,
   MODEL_OLLAMA_FULL, MODEL_DASHSCOPE_FULL,
   THINKING_MODE_LABEL, THINKING, REWRITING, LISTENING,
+  PLANNING_DONE, PLANNING_FAILED, PLANNING_SKIPPED,
 } from './Text'
 import { useChat } from './Chat'
 import './Chat.css'
@@ -15,6 +16,7 @@ const {
   conversations, activeConvId, loadingList,
   messages, inputText, sending, selectedModel,
   thinking, toggleThinking,
+  plannerStatus,
   searchQuery, filteredConversations, currentTitle,
   showScrollBtn, listening, scrollContainer,
   sidebarCollapsed, toggleSidebar,
@@ -27,6 +29,16 @@ const {
 const activeModelFull = computed(() =>
   selectedModel.value === 'qwen3.7-flash' ? MODEL_DASHSCOPE_FULL : MODEL_OLLAMA_FULL,
 )
+
+// 规划状态文案：planned→规划完成·耗时；skipped→低置信度已跳过；failed→失败已降级
+const plannerStatusText = computed(() => {
+  if (!plannerStatus.value) return ''
+  const { status, costTimeMs } = plannerStatus.value
+  const sec = (costTimeMs / 1000).toFixed(1)
+  if (status === 'failed') return `${PLANNING_FAILED}（${sec}s）`
+  if (status === 'skipped') return `${PLANNING_SKIPPED}（${sec}s）`
+  return `${PLANNING_DONE} · ${sec}s`
+})
 </script>
 
 <template>
@@ -109,6 +121,10 @@ const activeModelFull = computed(() =>
               {{ msg.rewriting ? REWRITING : THINKING }}
               <span class="dots"><span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></span>
               {{ msg.thinkSeconds }}s
+            </span>
+            <!-- 规划进度小字：planner 完成后显示状态与耗时，失败时提示已降级 -->
+            <span v-if="msg.thinking && plannerStatus" class="planner-status">
+              {{ plannerStatusText }}
             </span>
             <!-- 正文为空时隐藏气泡：思考阶段不显示空灰泡，token 到达后自动出现 -->
             <div v-if="msg.content" class="message" :class="msg.role">{{ msg.content }}</div>

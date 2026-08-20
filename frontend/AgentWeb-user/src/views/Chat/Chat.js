@@ -47,6 +47,10 @@ export function useChat() {
   // 语音输入状态：按住空格开始识别，松开结束
   const listening = ref(false)
 
+  // 规划进度：当前轮 planner 的规划状态（planned/skipped/failed）+ 耗时，
+  // 用于 thinking 提示行下方显示"正在规划 / 规划完成 · 0.3s / 规划失败，已降级"
+  const plannerStatus = ref(null)  // { status, reason, costTimeMs } | null
+
   let abortController = null
 
   // 全局模型选择：从 localStorage 读取，缺省本地 Ollama
@@ -238,6 +242,8 @@ export function useChat() {
     })
     messages.value.push(assistantMsg)
 
+    plannerStatus.value = null  // 新请求重置规划状态，避免残留上一轮显示
+
     // 打字机渲染缓冲：token 先进队列，定时器每帧取出一个并入 content，
     // 即使一次收到大量 token 也保证逐字显示（不依赖网络分块时机）
     const pending = []
@@ -310,6 +316,10 @@ export function useChat() {
         sending.value = false
         abortController = null
       },
+      (status, reason, costTimeMs) => {
+        // 规划事件到达：写入状态供 thinking 行展示（首 token 到达后隐藏）
+        plannerStatus.value = { status, reason, costTimeMs }
+      },
     )
 
     // 每帧（30ms）从队列取一个 token 写入消息，形成逐字打字机效果；
@@ -342,6 +352,7 @@ export function useChat() {
     conversations, activeConvId, loadingList,
     messages, inputText, sending, selectedModel,
     thinking, toggleThinking,
+    plannerStatus,
     searchQuery, filteredConversations, currentTitle,
     showScrollBtn, listening, scrollContainer,
     sidebarCollapsed, toggleSidebar,
