@@ -18,6 +18,8 @@ from app.services.agent import (
     REPLY_ON_VERIFY_FAILED,
     TITLE_COMPLETED_EVENT,
     VERIFIER_VERDICT_EVENT,
+    PLANNER_COMPLETED_EVENT,
+    PLANNER_FAILED_EVENT,
     build_agent_graph,
     build_agent_messages,
     get_skills_index_prompt,  # L0 技能索引：注入首轮 system prompt
@@ -29,6 +31,7 @@ from app.services.chat import (
     StreamSession,
     TitleCompletedHandler,
     VerdictHandler,
+    PlannerHandler,
 )
 from app.services.agent import get_tools
 
@@ -181,6 +184,14 @@ class ChatService:
         router.subscribe(
             VERIFIER_VERDICT_EVENT,
             VerdictHandler(session.reply_state, REPLY_ON_VERIFY_FAILED, session.sse_events).handle,
+        )
+        router.subscribe(
+            PLANNER_COMPLETED_EVENT,
+            PlannerHandler(session.sse_events).handle,
+        )
+        router.subscribe(
+            PLANNER_FAILED_EVENT,
+            PlannerHandler(session.sse_events).handle,
         )
         orchestrator = StreamOrchestrator(self.graph, session, serializer, router=router)
 

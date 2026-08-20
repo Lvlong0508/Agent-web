@@ -1,7 +1,7 @@
 """订阅侧业务 handler 单元测试：mock 输出队列与 ReplyState，验证行为与产出事件"""
 import pytest
 
-from app.services.chat.handlers import TitleCompletedHandler, VerdictHandler
+from app.services.chat.handlers import TitleCompletedHandler, VerdictHandler, PlannerHandler
 from app.services.chat.reply_state import ReplyPhase, ReplyState
 from app.services.chat.sse_serializer import SSEEvent
 
@@ -88,4 +88,56 @@ async def test_title_handler_missing_payload_skips():
     out = []
     handler = TitleCompletedHandler(out)
     await handler.handle({"type": "title.completed"})
+    assert out == []
+
+
+@pytest.mark.asyncio
+async def test_planner_handler_completed_emits():
+    """planner.completed：产出 SSEEvent(type="planner")，携带状态与耗时"""
+    out = []
+    handler = PlannerHandler(out)
+    await handler.handle({
+        "type": "planner.completed",
+        "payload": {"status": "planned", "intent_l1": "QUERY",
+                    "confidence": 0.9, "cost_time_ms": 320},
+    })
+    assert out == [SSEEvent(type="planner", data={
+        "status": "planned", "reason": "", "cost_time_ms": 320,
+    })]
+
+
+@pytest.mark.asyncio
+async def test_planner_handler_failed_emits():
+    """planner.failed：产出 SSEEvent(type="planner")，携带失败原因与耗时"""
+    out = []
+    handler = PlannerHandler(out)
+    await handler.handle({
+        "type": "planner.failed",
+        "payload": {"reason": "timeout", "cost_time_ms": 60000},
+    })
+    assert out == [SSEEvent(type="planner", data={
+        "status": "failed", "reason": "timeout", "cost_time_ms": 60000,
+    })]
+
+
+@pytest.mark.asyncio
+async def test_planner_handler_skipped_emits():
+    """低置信度 skipped：仍推送（前端显示"规划完成（低置信度）"）"""
+    out = []
+    handler = PlannerHandler(out)
+    await handler.handle({
+        "type": "planner.completed",
+        "payload": {"status": "skipped", "cost_time_ms": 150},
+    })
+    assert out == [SSEEvent(type="planner", data={
+        "status": "skipped", "reason": "", "cost_time_ms": 150,
+    })]
+
+
+@pytest.mark.asyncio
+async def test_planner_handler_missing_payload_noop():
+    """payload 缺失：不产出事件（防御分支）"""
+    out = []
+    handler = PlannerHandler(out)
+    await handler.handle({"type": "planner.completed"})
     assert out == []
