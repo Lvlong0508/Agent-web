@@ -55,3 +55,6 @@ class AgentState(MessagesState):
     # 降级原因（json_parse_error / timeout / schema_invalid / low_confidence）；
     # 空串表示无降级。供落库追溯规划失败原因
     planner_reason: str
+    # 规划耗时（毫秒）：planner 节点每次执行都记录，供全链路记录展示与排查慢规划。
+    # 必须声明才能经 updates 流推给 chat_service（未声明的键会被 LangGraph 静默丢弃）
+    planner_cost_ms: int

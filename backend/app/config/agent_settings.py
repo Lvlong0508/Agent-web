@@ -52,7 +52,7 @@ class AgentSettings(BaseSettings):
     # ---- planner 规划节点配置 ----
     PLANNER_MODEL_ALIAS: str = "planner"       # 用注册表里的哪个模型做规划
     PLANNER_THINKING: bool = True              # 思考模式：意图识别需推理，代价是更慢，故超时上调
-    PLANNER_TIMEOUT: float = 20.0              # 规划超时（秒），思考模式需更长
+    PLANNER_TIMEOUT: float = 60.0              # 规划超时（秒）。思考模式非流式要等全部思考完成（实测十几秒+），20s 不够实测触发降级，上调至 60s
     PLANNER_CONFIDENCE_THRESHOLD: float = 0.7  # 置信度阈值：低于此值标注低置信度
 
     # ---- skill 机制（从原 settings 迁入）----

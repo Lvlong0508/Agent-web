@@ -48,6 +48,20 @@ class StreamSession:
             entry = serialize_message(m)
             entry["role"] = "planner"
             self.trace_messages.append(entry)
+        # planner 元信息（状态/原因/耗时）：超时等失败场景不注入规划消息（messages=[]），
+        # 全链路记录仍要能查"规划失败 + 耗时"，故按 planner_status 补充一条 role=planner 记录
+        planner_status = updates.get("planner", {}).get("planner_status")
+        if planner_status:
+            cost = updates.get("planner", {}).get("planner_cost_ms", 0)
+            reason = updates.get("planner", {}).get("planner_reason", "")
+            # 状态映射：planned→完成 / skipped→跳过 / failed→失败，未知原样显示
+            status_label = {"planned": "完成", "skipped": "跳过", "failed": "失败"}.get(
+                planner_status, planner_status
+            )
+            desc = f"规划{status_label}，耗时 {cost}ms"
+            if reason:
+                desc += f"（原因：{reason}）"
+            self.trace_messages.append({"role": "planner", "content": desc})
         verifier_input = updates.get("verifier", {}).get("verdict_input")
         if verifier_input is not None:
             self.trace_messages.append({"role": "input_verdict", "content": verifier_input})

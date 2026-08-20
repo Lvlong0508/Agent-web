@@ -5,6 +5,7 @@ import json
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
+from app.config.agent_settings import agent_settings
 from app.services.agent.capabilities.planner.node import make_planner_node
 
 
@@ -51,6 +52,7 @@ async def test_planner_node_success():
     assert "查询本周账单" in out["messages"][0].content
     # 工具名已清洗为真实名
     assert out["planner_result"]["required_tools"] == ["list_expenses_by_date"]
+    assert out["planner_cost_ms"] >= 0  # 成功路径也记录耗时
 
 
 @pytest.mark.asyncio
@@ -72,24 +74,55 @@ async def test_planner_node_json_parse_failure_degrades():
 
 
 @pytest.mark.asyncio
-async def test_planner_node_timeout_degrades():
-    """LLM 超时：降级为跳过，状态 failed，reason=timeout"""
+async def test_planner_node_timeout_degrades(monkeypatch):
+    """LLM 卡住超过规划超时：节点内部 wait_for 兜底，降级为 failed，reason=timeout
+
+    用 monkeypatch 把 PLANNER_TIMEOUT 调小（0.1s），FakeLLM 睡眠 1s 必然触发
+    节点内部的 asyncio.wait_for 超时分支（而非外层取消），并验证 planner_cost_ms 已记录"""
     tools = []
     planner = make_planner_node(tools)
     state = {"messages": [HumanMessage(content="你好")]}
 
+    # 调小超时：原 60s 会让测试等 60 秒，0.1s 即可让节点内部超时分支被真实触发
+    monkeypatch.setattr(agent_settings, "PLANNER_TIMEOUT", 0.1)
+
     class FakeLLM:
         async def ainvoke(self, *args, **kwargs):
             import asyncio
+            await asyncio.sleep(1)  # 模拟卡住，超过 0.1s
 
-            await asyncio.sleep(10)  # 模拟卡住
+    out = await planner(state, llm=FakeLLM())
+    assert out["planner_status"] == "failed"
+    assert out["planner_reason"] == "timeout"
+    assert out["planner_result"] is None
+    assert out["messages"] == []
+    assert out["planner_cost_ms"] >= 0  # 耗时已记录
 
-    import asyncio
 
-    with pytest.raises(asyncio.TimeoutError):
-        # 超时由外层 asyncio.wait_for 保障，节点内部 wait_for(PLANNER_TIMEOUT=20s)
-        # 会晚于外层 1s 触发，因此外层先抛 TimeoutError
-        out = await asyncio.wait_for(planner(state, llm=FakeLLM()), timeout=1)
+@pytest.mark.asyncio
+async def test_planner_failed_event_carries_cost_time(monkeypatch):
+    """失败降级：emit 的事件 payload 带 cost_time_ms（原只有完成事件带耗时）"""
+    import app.services.agent.capabilities.planner.node as planner_module
+
+    captured = {}
+
+    def fake_emit(event_type, capability, payload=None, status="progress"):
+        captured["event_type"] = event_type
+        captured["payload"] = payload or {}
+
+    monkeypatch.setattr(planner_module, "emit", fake_emit)
+    tools = []
+    planner = make_planner_node(tools)
+    state = {"messages": [HumanMessage(content="记一笔")]}
+
+    class FakeLLM:
+        async def ainvoke(self, *args, **kwargs):
+            return AIMessage(content="这不是JSON")  # 触发 json_parse_error 降级
+
+    out = await planner(state, llm=FakeLLM())
+    assert out["planner_status"] == "failed"
+    assert captured["event_type"] == "planner.failed"
+    assert "cost_time_ms" in captured["payload"]
 
 
 @pytest.mark.asyncio

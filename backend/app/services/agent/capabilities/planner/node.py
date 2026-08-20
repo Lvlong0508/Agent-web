@@ -112,44 +112,53 @@ def make_planner_node(tools: list | None = None):
                 raise json.JSONDecodeError("非 dict", content, 0)
             plan = PlannerOutput(**data)
         except asyncio.TimeoutError:
+            # 失败分支也要上报耗时：与完成事件一致，便于全链路记录排查"慢规划/超时"
+            cost_time_ms = int((time.monotonic() - start) * 1000)
             logger.warning("planner 超时（%.1fs），降级跳过", agent_settings.PLANNER_TIMEOUT)
-            emit(PLANNER_FAILED_EVENT, "planner", {"reason": "timeout"}, status="failed")
+            emit(PLANNER_FAILED_EVENT, "planner", {"reason": "timeout", "cost_time_ms": cost_time_ms}, status="failed")
             return {
                 "planner_result": None,
                 "planner_status": "failed",
                 "planner_reason": "timeout",
                 "messages": [],
+                "planner_cost_ms": cost_time_ms,
             }
         except (json.JSONDecodeError, TypeError) as e:
+            cost_time_ms = int((time.monotonic() - start) * 1000)
             logger.warning("planner 输出解析失败，降级跳过：%s", e)
-            emit(PLANNER_FAILED_EVENT, "planner", {"reason": "json_parse_error"}, status="failed")
+            emit(PLANNER_FAILED_EVENT, "planner", {"reason": "json_parse_error", "cost_time_ms": cost_time_ms}, status="failed")
             return {
                 "planner_result": None,
                 "planner_status": "failed",
                 "planner_reason": "json_parse_error",
                 "messages": [],
+                "planner_cost_ms": cost_time_ms,
             }
         except ValidationError as e:
+            cost_time_ms = int((time.monotonic() - start) * 1000)
             logger.warning("planner 输出 schema 校验失败，降级跳过：%s", e)
-            emit(PLANNER_FAILED_EVENT, "planner", {"reason": "schema_invalid"}, status="failed")
+            emit(PLANNER_FAILED_EVENT, "planner", {"reason": "schema_invalid", "cost_time_ms": cost_time_ms}, status="failed")
             return {
                 "planner_result": None,
                 "planner_status": "failed",
                 "planner_reason": "schema_invalid",
                 "messages": [],
+                "planner_cost_ms": cost_time_ms,
             }
         except Exception as e:
             # LLM 调用本身抛出的异常（网络错误 / openai 403 无权限 / 配额等）：
             # 与 verifier 的 except Exception 降级同理，planner 必须对主流程透明。
             # 实测：planner 模型无 API 权限时 openai 抛 PermissionDeniedError，
             # 若不捕获会直接把 500 抛给整条请求，违背"规划失败不影响回复"的设计
+            cost_time_ms = int((time.monotonic() - start) * 1000)
             logger.warning("planner LLM 调用失败，降级跳过：%s", e)
-            emit(PLANNER_FAILED_EVENT, "planner", {"reason": "llm_error"}, status="failed")
+            emit(PLANNER_FAILED_EVENT, "planner", {"reason": "llm_error", "cost_time_ms": cost_time_ms}, status="failed")
             return {
                 "planner_result": None,
                 "planner_status": "failed",
                 "planner_reason": "llm_error",
                 "messages": [],
+                "planner_cost_ms": cost_time_ms,
             }
 
         # 清洗工具名：planner 可能输出近似名，容错解析后丢弃非法名（spec 7.2）
@@ -160,9 +169,10 @@ def make_planner_node(tools: list | None = None):
 
         # 低置信度：仍注入规划但标注 skipped（agent 自主执行）
         if plan.confidence < agent_settings.PLANNER_CONFIDENCE_THRESHOLD:
+            cost_time_ms = int((time.monotonic() - start) * 1000)
             emit(PLANNER_COMPLETED_EVENT, "planner",
                  {"status": "skipped", "intent_l1": plan.intent_l1,
-                  "confidence": plan.confidence, "cost_time_ms": int((time.monotonic() - start) * 1000)},
+                  "confidence": plan.confidence, "cost_time_ms": cost_time_ms},
                  status="progress")
             return {
                 "planner_result": result,
@@ -172,12 +182,14 @@ def make_planner_node(tools: list | None = None):
                     content=_format_plan_system_message(plan) + "\n（置信度较低，仅供参考）",
                     name=PLANNER_MARKER,
                 )],
+                "planner_cost_ms": cost_time_ms,
             }
 
         # 正常路径：注入规划 SystemMessage（name=planner 标记）
+        cost_time_ms = int((time.monotonic() - start) * 1000)
         emit(PLANNER_COMPLETED_EVENT, "planner",
              {"status": "planned", "intent_l1": plan.intent_l1,
-              "confidence": plan.confidence, "cost_time_ms": int((time.monotonic() - start) * 1000)},
+              "confidence": plan.confidence, "cost_time_ms": cost_time_ms},
              status="completed")
         return {
             "planner_result": result,
@@ -187,6 +199,7 @@ def make_planner_node(tools: list | None = None):
                 content=_format_plan_system_message(plan),
                 name=PLANNER_MARKER,
             )],
+            "planner_cost_ms": cost_time_ms,
         }
 
     return planner_node
