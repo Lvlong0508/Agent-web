@@ -73,6 +73,44 @@ def test_collect_trace_planner():
     assert session.trace_messages[0]["content"] == "【执行规划参考】..."
 
 
+def test_collect_trace_planner_meta():
+    """updates 流收集：planner 状态/原因/耗时追加为 role=planner 元信息记录。
+
+    超时/失败时 planner 不注入规划消息（messages=[]），全链路记录仍要能查
+    到"规划失败 + 耗时"，故按 planner_status 补充一条元信息记录"""
+    session = StreamSession()
+    updates = {
+        "planner": {
+            "messages": [],
+            "planner_status": "failed",
+            "planner_reason": "timeout",
+            "planner_cost_ms": 60000,
+        }
+    }
+    session.collect_trace(updates)
+    assert len(session.trace_messages) == 1
+    assert session.trace_messages[0]["role"] == "planner"
+    assert "失败" in session.trace_messages[0]["content"]
+    assert "60000" in session.trace_messages[0]["content"]
+
+
+def test_collect_trace_planner_success_meta():
+    """成功路径：既有规划消息 + 元信息记录两条都保留（元信息含耗时）"""
+    session = StreamSession()
+    updates = {
+        "planner": {
+            "messages": [SystemMessage(content="【执行规划参考】...", name="planner")],
+            "planner_status": "planned",
+            "planner_reason": "",
+            "planner_cost_ms": 320,
+        }
+    }
+    session.collect_trace(updates)
+    assert session.trace_messages[0]["role"] == "planner"   # 规划消息
+    assert session.trace_messages[1]["role"] == "planner"   # 元信息
+    assert "320" in session.trace_messages[1]["content"]
+
+
 def test_collect_trace_ignores_missing_sections():
     """updates 流缺省节点段（无 agent/tools/verifier）时不应抛错"""
     session = StreamSession()

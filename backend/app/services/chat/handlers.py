@@ -11,6 +11,10 @@
 
 from app.services.chat.reply_state import ReplyState
 from app.services.chat.sse_serializer import SSEEvent
+from app.services.agent import (
+    PLANNER_COMPLETED_EVENT,
+    PLANNER_FAILED_EVENT,
+)
 
 
 class TitleCompletedHandler:
@@ -52,3 +56,35 @@ class VerdictHandler:
         elif result == "fail":
             self._state.on_fail(self._fail_text)
             self._out.append(SSEEvent(type="final", data={"final": self._state.full_response}))
+
+class PlannerHandler:
+    """处理 planner.completed / planner.failed：把规划状态推给前端进度展示。
+
+    规划发生在 agent 推理之前，前端可据此显示"正在规划 / 规划完成 / 规划失败"。
+    统一归一为 type="planner"，data 含 status/reason/cost_time_ms，前端单一解析入口。
+    """
+
+    def __init__(self, out: list[SSEEvent]):
+        """out：领域事件输出队列（chat_stream 注入，与 StreamSession.sse_events 同对象）"""
+        self._out = out
+
+    async def handle(self, event: dict) -> None:
+        """把 planner 事件归一为 SSEEvent(type="planner")；payload 缺失则忽略
+
+        data 用 {"planner": {...}} 包装（与 title/final 的按键名取一致），
+        前端 SSE 解析 `parsed.planner` 才能命中，否则前端拿不到规划状态"""
+        payload = event.get("payload") or {}
+        if not payload:
+            return
+        # 事件类型区分完成/失败：completed 的 payload.status 是 planned/skipped，
+        # failed 的 status 固定 failed（节点 emit 时已带 status="failed"）
+        event_type = event.get("type", "")
+        if event_type == PLANNER_FAILED_EVENT:
+            status = "failed"
+        else:
+            status = payload.get("status", "planned")
+        self._out.append(SSEEvent(type="planner", data={"planner": {
+            "status": status,
+            "reason": payload.get("reason", ""),
+            "cost_time_ms": payload.get("cost_time_ms", 0),
+        }}))

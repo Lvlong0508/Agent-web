@@ -21,6 +21,10 @@ from app.services.agent.capabilities.verifier.node import (
     _decide_verification,
     route_after_verify,
 )
+from app.services.agent.capabilities.planner.events import (
+    PLANNER_COMPLETED_EVENT,
+    PLANNER_FAILED_EVENT,
+)
 from app.services.agent.context.agent import build_agent_messages
 from app.services.agent.events import CapabilityEvent, EventRouter, serialize_message
 from app.services.agent.prompts import REPLY_ON_VERIFY_FAILED
@@ -36,6 +40,8 @@ __all__ = [
     "TITLE_COMPLETED_EVENT",
     "VERIFIER_VERDICT_EVENT",
     "Verdict",
+    "PLANNER_COMPLETED_EVENT",
+    "PLANNER_FAILED_EVENT",
     "_decide_verification",
     "_generate_title_if_empty",
     "build_agent_graph",

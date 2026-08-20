@@ -8,7 +8,7 @@
 本 __init__ 作为包出口，随各文件落地逐步追加重导出。
 """
 
-from app.services.chat.handlers import TitleCompletedHandler, VerdictHandler
+from app.services.chat.handlers import TitleCompletedHandler, VerdictHandler, PlannerHandler
 from app.services.chat.reply_state import ReplyPhase, ReplyState
 from app.services.chat.sse_serializer import SSEEvent, SSESerializer
 from app.services.chat.stream_session import StreamOrchestrator, StreamSession
@@ -16,6 +16,6 @@ from app.services.chat.stream_session import StreamOrchestrator, StreamSession
 __all__ = [
     "ReplyPhase", "ReplyState",
     "SSEEvent", "SSESerializer",
-    "TitleCompletedHandler", "VerdictHandler",
+    "TitleCompletedHandler", "VerdictHandler", "PlannerHandler",
     "StreamOrchestrator", "StreamSession",
 ]

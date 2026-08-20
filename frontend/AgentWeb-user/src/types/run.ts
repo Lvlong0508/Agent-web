@@ -4,6 +4,13 @@
 // content 的三种形态：普通文本 / 嵌套消息数组 / JSON 对象
 export type MessageContent = string | NestedMessage[] | Record<string, unknown>
 
+// 工具调用：assistant 消息声明要调用哪个工具（与 tool 消息的 tool_call_id 一一对应）
+export interface ToolCall {
+  name: string                    // 工具名（如 list_expenses）
+  args: Record<string, unknown>   // 调用参数（如 {"page": 1}）
+  id: string                      // 调用 ID（tool 消息的 tool_call_id 与之对应）
+}
+
 // 嵌套消息（input_verdict 的 content 数组元素，content 通常为字符串）
 export interface NestedMessage {
   role: string
@@ -17,7 +24,7 @@ export interface AgentMessage {
   id?: string
   name?: string
   tool_call_id?: string
-  tool_calls?: unknown[]
+  tool_calls?: ToolCall[]
 }
 
 // 一条运行记录（来自 GET /agent-runs 响应项）

@@ -6,10 +6,10 @@ from app.config.agent_settings import AgentSettings, agent_settings
 
 
 def test_planner_defaults():
-    """planner 配置默认值：模型别名 planner / 思考开 / 超时20s / 阈值0.7"""
+    """planner 配置默认值：模型别名 planner / 思考开 / 超时60s / 阈值0.7"""
     assert agent_settings.PLANNER_MODEL_ALIAS == "planner"
     assert agent_settings.PLANNER_THINKING is True
-    assert agent_settings.PLANNER_TIMEOUT == 20.0
+    assert agent_settings.PLANNER_TIMEOUT == 60.0
     assert agent_settings.PLANNER_CONFIDENCE_THRESHOLD == 0.7
 
 

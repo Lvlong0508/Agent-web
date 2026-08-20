@@ -135,3 +135,24 @@ async def test_event_router_dispatches_and_isolates_handler_error():
 
     assert received == [42]      # ok_handler 正常执行
     assert calls["n"] == 1       # boom_handler 被调用但异常被隔离
+
+
+def test_event_router_subscribed_no_warning(caplog):
+    """订阅 planner.failed 后 dispatch 不再打"未订阅"警告。
+
+    回归保护：chat_service 已订阅 planner 事件，若订阅遗漏，dispatch 会
+    打 warning"收到未订阅的事件类型"，制造日志噪音并掩盖真实问题"""
+    import logging
+
+    router = EventRouter()
+    received = []
+
+    async def handler(event):
+        received.append(event)
+
+    router.subscribe("planner.failed", handler)
+
+    asyncio.run(router.dispatch({"type": "planner.failed", "payload": {}}))
+
+    assert received, "订阅的 handler 必须被调用"
+    assert not any("未订阅" in r.message for r in caplog.records)
