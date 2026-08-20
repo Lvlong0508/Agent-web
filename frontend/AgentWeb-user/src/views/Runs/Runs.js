@@ -92,12 +92,13 @@ export function useRuns() {
     try {
       const { data } = await deleteAgentRuns([...selected])
       selected.clear()
-      // 若删除的是最后一页全部记录，当前页码会越界（后端只钳下限不钳上限）：
-      // 回退到有效末页（至少第 1 页）。此时 totalPages 仍是删除前的旧值——
-      // 删除数 < pageSize 时页码不变，等于 pageSize（整页删光）时正好回退一页
-      if (page.value > totalPages.value) {
-        page.value = Math.max(totalPages.value, 1)
-      }
+      // 删除后按剩余总数估算新的末页并钳制当前页码（后端只钳下限 page>=1，不钳上限，
+      // 越界请求会返回空列表导致显示空页）。不能用删除前的 totalPages 比较——
+      // 整页删光那一刻 page == totalPages（旧值），条件恒 false，兜底不会触发。
+      // 剩余总数 = 旧 total - 实际删除数，末页 = ceil(剩余 / 每页条数)，至少第 1 页
+      const remaining = Math.max(total.value - data.deleted, 0)
+      const lastPage = Math.max(1, Math.ceil(remaining / pageSize.value))
+      if (page.value > lastPage) page.value = lastPage
       // 复用全局弹窗提示成功，标题用"删除成功"而非默认的"出错了"
       showError(DELETE_SUCCESS(data.deleted), DELETE_SUCCESS_TITLE)
       await loadRuns()
