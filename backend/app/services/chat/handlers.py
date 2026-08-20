@@ -69,7 +69,10 @@ class PlannerHandler:
         self._out = out
 
     async def handle(self, event: dict) -> None:
-        """把 planner 事件归一为 SSEEvent(type="planner")；payload 缺失则忽略"""
+        """把 planner 事件归一为 SSEEvent(type="planner")；payload 缺失则忽略
+
+        data 用 {"planner": {...}} 包装（与 title/final 的按键名取一致），
+        前端 SSE 解析 `parsed.planner` 才能命中，否则前端拿不到规划状态"""
         payload = event.get("payload") or {}
         if not payload:
             return
@@ -80,8 +83,8 @@ class PlannerHandler:
             status = "failed"
         else:
             status = payload.get("status", "planned")
-        self._out.append(SSEEvent(type="planner", data={
+        self._out.append(SSEEvent(type="planner", data={"planner": {
             "status": status,
             "reason": payload.get("reason", ""),
             "cost_time_ms": payload.get("cost_time_ms", 0),
-        }))
+        }}))

@@ -34,6 +34,7 @@ class PlannerCapability(AgentCapability):
             "planner_result": dict | None,
             "planner_status": str,
             "planner_reason": str,
+            "planner_cost_ms": int,   # 规划耗时（毫秒）：与 AgentState 保持一致，供 updates 流带出
         }
 
     def register_nodes(self, builder: StateGraph) -> list[str]:

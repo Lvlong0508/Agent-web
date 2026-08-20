@@ -131,9 +131,11 @@ export function sendMessageStream(
     }
   }
 
-  // 超时兜底：SSE 是长连接，不能无限等待。60 秒内未结束视为超时，
-  // 触发 abort 让下方 catch 分支按超时处理（语义与之前 axios timeout 一致）
-  const TIMEOUT_MS = 60000
+  // 超时兜底：SSE 是长连接，不能无限等待。120 秒内未结束视为超时，
+  // 触发 abort 让下方 catch 分支按超时处理（语义与之前 axios timeout 一致）。
+  // 上调理由：后端 planner 单次规划超时已提至 60s（思考模式非流式），若前端
+  // 仍用 60s，规划占满预算后主回复流式可能被误判超时，需给整轮留出余量
+  const TIMEOUT_MS = 120000
   const timeoutId = setTimeout(() => {
     timedOut = true
     controller.abort()

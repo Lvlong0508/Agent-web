@@ -93,7 +93,9 @@ async def test_title_handler_missing_payload_skips():
 
 @pytest.mark.asyncio
 async def test_planner_handler_completed_emits():
-    """planner.completed：产出 SSEEvent(type="planner")，携带状态与耗时"""
+    """planner.completed：产出 SSEEvent(type="planner")，data 包装为 {"planner": {...}}
+
+    与 title/final 的 SSE 契约一致：data 按键名（planner）包装，前端 parsed.planner 才能命中"""
     out = []
     handler = PlannerHandler(out)
     await handler.handle({
@@ -101,9 +103,9 @@ async def test_planner_handler_completed_emits():
         "payload": {"status": "planned", "intent_l1": "QUERY",
                     "confidence": 0.9, "cost_time_ms": 320},
     })
-    assert out == [SSEEvent(type="planner", data={
+    assert out == [SSEEvent(type="planner", data={"planner": {
         "status": "planned", "reason": "", "cost_time_ms": 320,
-    })]
+    }})]
 
 
 @pytest.mark.asyncio
@@ -115,9 +117,9 @@ async def test_planner_handler_failed_emits():
         "type": "planner.failed",
         "payload": {"reason": "timeout", "cost_time_ms": 60000},
     })
-    assert out == [SSEEvent(type="planner", data={
+    assert out == [SSEEvent(type="planner", data={"planner": {
         "status": "failed", "reason": "timeout", "cost_time_ms": 60000,
-    })]
+    }})]
 
 
 @pytest.mark.asyncio
@@ -129,9 +131,9 @@ async def test_planner_handler_skipped_emits():
         "type": "planner.completed",
         "payload": {"status": "skipped", "cost_time_ms": 150},
     })
-    assert out == [SSEEvent(type="planner", data={
+    assert out == [SSEEvent(type="planner", data={"planner": {
         "status": "skipped", "reason": "", "cost_time_ms": 150,
-    })]
+    }})]
 
 
 @pytest.mark.asyncio
