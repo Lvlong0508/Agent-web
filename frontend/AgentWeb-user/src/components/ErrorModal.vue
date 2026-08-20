@@ -7,6 +7,7 @@ import { watch, onUnmounted } from 'vue'
 const props = defineProps<{
   visible: boolean
   message: string
+  title: string
 }>()
 
 const emit = defineEmits<{
@@ -53,7 +54,7 @@ onUnmounted(() => {
       <div v-if="visible" class="modal-overlay" @click.self="onClose">
         <!-- role="alertdialog" 让屏幕阅读器把弹窗识别为可打断的对话框 -->
         <div class="modal-card" role="alertdialog" aria-modal="true">
-          <h3 class="modal-title">出错了</h3>
+          <h3 class="modal-title">{{ title }}</h3>
           <p class="modal-message">{{ message }}</p>
           <button class="modal-confirm" @click="onClose">知道了</button>
         </div>
