@@ -56,3 +56,8 @@ npm run dev -- --host 0.0.0.0 --port 5173 --strictPort
 cd backend
 python -m pytest
 ```
+
+## 其他页面URL
+```
+全链路记录URL：http://localhost:5173/runs
+```
