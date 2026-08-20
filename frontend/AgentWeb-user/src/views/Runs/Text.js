@@ -10,6 +10,7 @@ export const DELETE_SELECTED = '删除所选'
 export const NO_SELECTION = '请先勾选要删除的记录'
 export const CONFIRM_DELETE = (n) => `确定删除选中的 ${n} 条运行记录吗？`
 export const DELETE_SUCCESS = (n) => `已删除 ${n} 条运行记录`
+export const DELETE_SUCCESS_TITLE = '删除成功'
 export const COL_STATUS = '状态'
 export const COL_TIME = '时间'
 export const COL_MODEL = '模型'

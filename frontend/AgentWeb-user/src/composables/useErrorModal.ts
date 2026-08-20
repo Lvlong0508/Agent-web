@@ -7,18 +7,24 @@ const ERROR_MODAL_KEY = 'errorModal'
 
 export interface ErrorModalState {
   message: Ref<string>
+  title: Ref<string>
   visible: Ref<boolean>
-  showError: (msg: string) => void
+  showError: (msg: string, title?: string) => void
   closeError: () => void
 }
 
 // 全局唯一状态实例：模块级单例，App.vue 挂载时提供，任意组件注入同一份
 const state = {
   message: ref(''),
+  title: ref('出错了'),
   visible: ref(false),
-  showError: (msg: string) => {
+  // 可选 title 参数：兼容既有调用（不传时仍显示默认"出错了"），
+  // 供"删除成功"这类非错误提示用有意义的标题
+  showError: (msg: string, title?: string) => {
     // 幂等：连续触发只更新文案并确保弹窗可见，不叠加多个弹窗
     state.message.value = msg
+    // 每次调用都重置标题：不传则回退默认，避免上次的标题残留
+    state.title.value = title ?? '出错了'
     state.visible.value = true
   },
   closeError: () => {
@@ -37,6 +43,7 @@ export function useErrorModal() {
   return {
     visible: injected.visible,
     message: injected.message,
+    title: injected.title,
     showError: injected.showError,
     closeError: injected.closeError,
   }

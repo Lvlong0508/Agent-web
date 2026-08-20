@@ -139,6 +139,7 @@
   color: var(--text-primary);
 }
 .cell-ellipsis {
+  display: block;   /* span 需块级，max-width/overflow 才对行内元素生效 */
   max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -156,6 +157,7 @@
 .status-badge.error { background: rgba(255, 59, 48, 0.12); color: #FF3B30; }
 
 .cell-error {
+  display: block;   /* span 需块级，max-width/overflow 才对行内元素生效 */
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;

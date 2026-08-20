@@ -4,7 +4,7 @@ import { listAgentRuns, deleteAgentRuns } from '@/api/agentRuns'
 import { useErrorModal } from '@/composables/useErrorModal'
 import {
   LOADING, SEARCH_EMPTY, EMPTY_RUNS, NO_SELECTION,
-  CONFIRM_DELETE, DELETE_SUCCESS,
+  CONFIRM_DELETE, DELETE_SUCCESS, DELETE_SUCCESS_TITLE,
 } from './Text'
 
 export function useRuns() {
@@ -22,6 +22,8 @@ export function useRuns() {
   const searchQuery = ref('')
   // 详情抽屉状态：null = 关闭，否则为当前查看的 run
   const activeRun = ref(null)
+  // 删除进行中标记：请求期间置 true，防止慢网下重复点击触发多次删除
+  const deleting = ref(false)
 
   const { showError } = useErrorModal()
 
@@ -80,18 +82,29 @@ export function useRuns() {
   }
 
   async function deleteSelected() {
+    if (deleting.value) return  // 删除请求进行中：忽略重复触发
     if (selected.size === 0) {
       showError(NO_SELECTION)
       return
     }
     if (!window.confirm(CONFIRM_DELETE(selected.size))) return
+    deleting.value = true
     try {
       const { data } = await deleteAgentRuns([...selected])
       selected.clear()
-      showError(DELETE_SUCCESS(data.deleted))  // 复用全局弹窗提示成功（弹窗标题为"提示"）
+      // 若删除的是最后一页全部记录，当前页码会越界（后端只钳下限不钳上限）：
+      // 回退到有效末页（至少第 1 页）。此时 totalPages 仍是删除前的旧值——
+      // 删除数 < pageSize 时页码不变，等于 pageSize（整页删光）时正好回退一页
+      if (page.value > totalPages.value) {
+        page.value = Math.max(totalPages.value, 1)
+      }
+      // 复用全局弹窗提示成功，标题用"删除成功"而非默认的"出错了"
+      showError(DELETE_SUCCESS(data.deleted), DELETE_SUCCESS_TITLE)
       await loadRuns()
     } catch (err) {
       showError(err?.response?.data?.detail || err.message || '删除失败')
+    } finally {
+      deleting.value = false
     }
   }
 
@@ -107,7 +120,7 @@ export function useRuns() {
 
   return {
     runs, filteredRuns, loading, page, pageSize, total, totalPages,
-    selected, allSelected, searchQuery, activeRun,
+    selected, allSelected, searchQuery, activeRun, deleting,
     loadRuns, goToPage, toggleRow, toggleAll, deleteSelected,
     openDetail, closeDetail,
   }

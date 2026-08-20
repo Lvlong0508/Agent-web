@@ -1,5 +1,6 @@
 <script setup>
 // 运行记录管理页：分页列表 + 多选删除 + 本地搜索 + 右侧抽屉详情
+import { watch, onUnmounted } from 'vue'
 import {
   RUNS_TITLE, RUNS_SUBTITLE, SEARCH_PLACEHOLDER, SEARCH_EMPTY,
   EMPTY_RUNS, LOADING, REFRESH, DELETE_SELECTED,
@@ -12,10 +13,23 @@ import RunDetail from '@/components/run-detail/RunDetail.vue'
 
 const {
   runs, filteredRuns, loading, page, totalPages, total,
-  selected, allSelected, searchQuery, activeRun,
+  selected, allSelected, searchQuery, activeRun, deleting,
   loadRuns, goToPage, toggleRow, toggleAll, deleteSelected,
   openDetail, closeDetail,
 } = useRuns()
+
+// 抽屉 Esc 关闭：与 ErrorModal 的惯例一致——打开时给 window 绑 keydown，
+// 关闭/卸载时解绑，避免抽屉关闭后 Esc 仍被拦截
+function onDrawerKeydown(e) {
+  if (e.key === 'Escape') closeDetail()
+}
+watch(activeRun, (val) => {
+  if (val) window.addEventListener('keydown', onDrawerKeydown)
+  else window.removeEventListener('keydown', onDrawerKeydown)
+})
+onUnmounted(() => {
+  window.removeEventListener('keydown', onDrawerKeydown)
+})
 
 // 格式化时间：显示 月/日 时:分:秒
 function formatTime(iso) {
@@ -39,7 +53,7 @@ function formatTime(iso) {
         <div class="runs-search">
           <input v-model="searchQuery" :placeholder="SEARCH_PLACEHOLDER" />
         </div>
-        <button class="btn-secondary btn-danger" :disabled="selected.size === 0" @click="deleteSelected">
+        <button class="btn-secondary btn-danger" :disabled="selected.size === 0 || deleting" @click="deleteSelected">
           {{ DELETE_SELECTED }}{{ selected.size ? `（${selected.size}）` : '' }}
         </button>
         <button class="btn-secondary" @click="loadRuns">{{ REFRESH }}</button>
@@ -83,8 +97,14 @@ function formatTime(iso) {
                 </span>
               </td>
               <td>{{ run.model }}</td>
-              <td class="mono cell-ellipsis" :title="run.conversation_id">{{ run.conversation_id }}</td>
-              <td class="mono cell-ellipsis" :title="run.trace_id">{{ run.trace_id }}</td>
+              <!-- 长文本包一层 span 做截断：table-layout:auto 下 td 的 max-width 不可靠，
+                    span 用 display:block + overflow 才能稳定截断；title 保留完整内容供悬停查看 -->
+              <td class="mono" :title="run.conversation_id">
+                <span class="cell-ellipsis">{{ run.conversation_id }}</span>
+              </td>
+              <td class="mono" :title="run.trace_id">
+                <span class="cell-ellipsis">{{ run.trace_id }}</span>
+              </td>
               <td>{{ run.messages.length }}</td>
               <td>
                 <span v-if="run.error" class="cell-error" :title="run.error">{{ run.error }}</span>
