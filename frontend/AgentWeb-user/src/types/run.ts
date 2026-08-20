@@ -1,4 +1,5 @@
-// 运行记录详情组件类型定义：消息多态（string / 数组 / 对象）的统一建模
+// 运行记录领域类型：后端 /agent-runs 响应模型 + 消息多态结构。
+// 放共享 types 目录（而非组件目录），API 层与组件层共同引用，避免依赖方向倒置。
 
 // content 的三种形态：普通文本 / 嵌套消息数组 / JSON 对象
 export type MessageContent = string | NestedMessage[] | Record<string, unknown>

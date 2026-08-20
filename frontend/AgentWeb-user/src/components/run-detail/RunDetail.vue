@@ -59,7 +59,7 @@
 
 <script setup lang="ts">
 import { computed, provide, reactive, ref } from 'vue'
-import type { AgentRun } from './types'
+import type { AgentRun } from '@/types/run'
 import { getRoleConfig } from './constants'
 import MessageItem from './MessageItem.vue'
 

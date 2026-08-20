@@ -26,7 +26,7 @@
 
 <script setup lang="ts">
 import { reactive } from 'vue'
-import type { NestedMessage } from './types'
+import type { NestedMessage } from '@/types/run'
 
 // 递归组件：声明名字供模板内自引用
 defineOptions({ name: 'NestedMessageList' })

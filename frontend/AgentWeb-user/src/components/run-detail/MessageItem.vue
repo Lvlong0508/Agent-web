@@ -18,7 +18,7 @@
 
 <script setup lang="ts">
 import { computed, inject } from 'vue'
-import type { AgentMessage } from './types'
+import type { AgentMessage } from '@/types/run'
 import { getRoleConfig } from './constants'
 import ContentRenderer from './ContentRenderer.vue'
 

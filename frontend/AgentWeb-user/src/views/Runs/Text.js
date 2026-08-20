@@ -1,0 +1,22 @@
+// 运行记录管理页文案集中管理：与 Chat/Text.js 模式一致
+export const RUNS_TITLE = '运行记录'
+export const RUNS_SUBTITLE = 'Agent 全链路运行记录，供排查与复盘'
+export const SEARCH_PLACEHOLDER = '搜索对话ID / trace_id / 状态'
+export const SEARCH_EMPTY = '没有匹配的运行记录'
+export const EMPTY_RUNS = '暂无运行记录'
+export const LOADING = '加载中…'
+export const REFRESH = '刷新'
+export const DELETE_SELECTED = '删除所选'
+export const NO_SELECTION = '请先勾选要删除的记录'
+export const CONFIRM_DELETE = (n) => `确定删除选中的 ${n} 条运行记录吗？`
+export const DELETE_SUCCESS = (n) => `已删除 ${n} 条运行记录`
+export const COL_STATUS = '状态'
+export const COL_TIME = '时间'
+export const COL_MODEL = '模型'
+export const COL_CONVERSATION = '对话ID'
+export const COL_TRACE = 'trace_id'
+export const COL_MESSAGES = '消息'
+export const COL_ERROR = '错误'
+export const STATUS_OK = '成功'
+export const STATUS_ERROR = '失败'
+export const CLOSE = '关闭'

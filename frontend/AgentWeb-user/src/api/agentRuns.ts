@@ -1,6 +1,6 @@
 // 运行记录 API 模块：列表分页查询 + 批量删除（axios，请求头由拦截器统一附加）
 import http from './index'
-import type { AgentRun } from '@/components/run-detail/types'
+import type { AgentRun } from '@/types/run'
 
 // 后端 /agent-runs 分页响应结构（对齐 app/schemas/agent_run.py 的 AgentRunListResponse）
 export interface AgentRunListResponse {

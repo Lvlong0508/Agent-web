@@ -12,7 +12,7 @@
 </template>
 
 <script setup lang="ts">
-import type { MessageContent, NestedMessage } from './types'
+import type { MessageContent, NestedMessage } from '@/types/run'
 import NestedMessageList from './NestedMessageList.vue'
 import JsonViewer from './JsonViewer.vue'
 
