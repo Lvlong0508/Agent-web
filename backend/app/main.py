@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.v1.chat import router as chat_router
 from app.api.v1.auth import router as auth_router
+from app.api.v1.agent_runs import router as agent_runs_router
 from app.middleware.mongodb import MongoDB
 from app.middleware.mysql import Base, engine
 from app.exceptions import AppException
@@ -56,3 +57,4 @@ async def app_exception_handler(request, exc: AppException):
 # 注册路由模块
 app.include_router(chat_router)
 app.include_router(auth_router)
+app.include_router(agent_runs_router)
