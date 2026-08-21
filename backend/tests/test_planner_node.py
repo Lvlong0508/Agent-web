@@ -9,6 +9,12 @@ from app.config.agent_settings import agent_settings
 from app.services.agent.capabilities.planner.node import make_planner_node
 
 
+def test_planner_node_imports_via_context_init():
+    """编排层 import 经 context 包 __init__（不深层 import 越过 init）"""
+    import app.services.agent.capabilities.planner.node as node_module
+    assert node_module.HISTORY_REFERENCE_MARKER == "history_reference"
+
+
 class _FakeTool:
     def __init__(self, name, description):
         self.name = name

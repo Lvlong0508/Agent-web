@@ -1,11 +1,9 @@
 """planner 节点：LLM 意图识别 + 目标分析 + 路线规划，带三级降级。
 
-设计要点（spec 第 8/11 节）：
-- 用注册表 planner 条目（agent_settings.PLANNER_MODEL_ALIAS）非流式调用，开启思考模式
-- 输出必须解析为 PlannerOutput；任何失败（JSON/schema/超时）降级为跳过，
-  对主流程完全透明（planner_result=None，不注入规划消息）
-- 低置信度：仍注入规划但状态 skipped（agent 自主执行）
-- 规划 SystemMessage 带 name=planner 标记：rewrite 据此过滤、落库可追溯
+职责（spec 2026-08-21）：
+- 本文件只做**编排**：调 LLM + 降级 + 状态组装 + 输出清洗
+- 提示词素材在 agent/prompts/planner.py，content 组装在 agent/context/planner.py
+- 编排层经 agent.context 包级 __init__ 导入，不深层 import（import 边界）
 """
 
 import asyncio
@@ -13,7 +11,7 @@ import json
 import logging
 import time
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import SystemMessage
 from pydantic import ValidationError
 
 from app.config.agent_settings import agent_settings
@@ -21,10 +19,12 @@ from app.services.agent.capabilities.planner.events import (
     PLANNER_COMPLETED_EVENT,
     PLANNER_FAILED_EVENT,
 )
-from app.services.agent.capabilities.planner.prompts import build_planner_prompt
 from app.services.agent.capabilities.planner.schema import PlannerOutput
-from app.services.agent.capabilities.planner.tool_listing import sanitize_required_tools
-from app.services.agent.context.agent import HISTORY_REFERENCE_MARKER
+from app.services.agent.context import (
+    HISTORY_REFERENCE_MARKER,   # 经 context 包级导出（对齐 spec §3.5）
+    build_planner_messages,     # content 组装：生成发给 planner 的消息列表
+    format_plan_system_message, # content 组装：规划 → 注入 agent 的 SystemMessage 内容
+)
 from app.services.agent.events import emit
 from app.services.agent.llm import create_llm
 
@@ -34,23 +34,58 @@ logger = logging.getLogger(__name__)
 PLANNER_MARKER = "planner"
 
 
-def _format_plan_system_message(plan: PlannerOutput) -> str:
-    """把规划格式化为注入 agent 上下文的 SystemMessage 内容"""
-    steps_desc = "\n".join(
-        f"  {s.step_id}. {s.action}"
-        + (f"（建议工具：{', '.join(s.suggested_tools)}）" if s.suggested_tools else "")
-        for s in plan.plan_steps
-    )
-    return (
-        "【执行规划参考】\n"
-        f"意图：{plan.intent_l1}/{plan.intent_l2}\n"
-        f"目标：{plan.goal}\n"
-        f"步骤：\n{steps_desc}\n"
-        f"推荐工具：{', '.join(plan.required_tools) or '无（自主决定）'}\n"
-        f"推荐技能：{', '.join(plan.required_skills) or '无'}\n"
-        f"置信度：{plan.confidence}\n"
-        "注意：以上为参考规划，你可根据实际情况调整，但不得偏离用户核心目标。"
-    )
+def _edit_distance(a: str, b: str) -> int:
+    """计算两字符串的编辑距离（Levenshtein），供工具名模糊匹配。
+
+    实现：经典动态规划。工具名长度通常 <30，O(n*m) 足够。
+    """
+    if len(a) < len(b):
+        a, b = b, a
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(
+                prev[j] + 1,          # 删除
+                cur[j - 1] + 1,       # 插入
+                prev[j - 1] + (ca != cb),  # 替换
+            ))
+        prev = cur
+    return prev[-1]
+
+
+def resolve_tool_name(raw_name: str, valid_names: list[str]) -> str | None:
+    """工具名容错解析：精确匹配 → 编辑距离 ≤2 模糊纠正 → 无法匹配返回 None。
+
+    None 表示该工具名不可信，调用方应丢弃它并让 agent 自主选择工具。
+    """
+    if raw_name in valid_names:
+        return raw_name
+    # 编辑距离 ≤2 的最近匹配自动纠正（小模型常见拼写偏差）
+    best = None
+    best_dist = 3  # >2 视为不可信
+    for name in valid_names:
+        dist = _edit_distance(raw_name, name)
+        if dist < best_dist:
+            best = name
+            best_dist = dist
+    return best if best_dist <= 2 else None
+
+
+def sanitize_required_tools(required_tools: list[str], valid_names: list[str]) -> list[str]:
+    """清洗 planner 输出的工具名列表：逐名容错解析，无法匹配的丢弃。
+
+    返回清洗后的可信工具名列表（可能短于输入，但不会引入非法名）。
+    属编排层输出后处理（处理 LLM 返回的结果，不是发给 planner 的上下文）。
+    """
+    result = []
+    for raw in required_tools:
+        resolved = resolve_tool_name(raw, valid_names)
+        if resolved is not None and resolved not in result:
+            result.append(resolved)
+    return result
 
 
 def _extract_user_input(messages) -> str:
@@ -61,8 +96,8 @@ def _extract_user_input(messages) -> str:
     历史参考块与本轮问题都是 HumanMessage，靠 name 标记区分（与 rewrite/verdict 同法）。
     """
     for m in reversed(messages):
-        if isinstance(m, HumanMessage):
-            if getattr(m, "name", None) != HISTORY_REFERENCE_MARKER:
+        if hasattr(m, "name") and getattr(m, "name", None) != HISTORY_REFERENCE_MARKER:
+            if m.type == "human":
                 return m.content
     return ""
 
@@ -79,8 +114,7 @@ def make_planner_node(tools: list | None = None):
         llm：可注入的 LLM 实例（测试用）；缺省用 agent_settings 配置创建。
         """
         start = time.monotonic()
-        # 用独立规划模型（查注册表 planner 条目：非流式 + 思考开），不占用 agent 主模型。
-        # 模型/厂商由注册表决定，PLANNER_THINKING 仍保留为运行时覆盖开关
+        # 用独立规划模型（查注册表 planner 条目：非流式 + 思考开），不占用 agent 主模型
         if llm is None:
             llm = create_llm(
                 alias=agent_settings.PLANNER_MODEL_ALIAS,
@@ -92,17 +126,14 @@ def make_planner_node(tools: list | None = None):
         # 技能索引从 state 读取（chat_stream 已检索 top-K 注入），不再自调全量；
         # 缺省空串（无技能/降级时 skill 机制透明）
         skills_index = state.get("skills_index", "")
-        prompt = build_planner_prompt(
-            user_input,
-            tools_list,
-            skills_index,
-        )
+        # content 组装委托 context 层：生成 [SystemMessage(提示词), HumanMessage(用户本轮)]
+        messages = build_planner_messages(user_input, tools_list, skills_index)
         valid_names = [t.name for t in tools_list]
 
         try:
             # 超时由 asyncio.wait_for 保障：模型卡住也能打断（spec 4.3）
             response = await asyncio.wait_for(
-                llm.ainvoke([SystemMessage(content=prompt)]),
+                llm.ainvoke(messages),
                 timeout=agent_settings.PLANNER_TIMEOUT,
             )
             content = getattr(response, "content", "")
@@ -114,7 +145,6 @@ def make_planner_node(tools: list | None = None):
                 raise json.JSONDecodeError("非 dict", content, 0)
             plan = PlannerOutput(**data)
         except asyncio.TimeoutError:
-            # 失败分支也要上报耗时：与完成事件一致，便于全链路记录排查"慢规划/超时"
             cost_time_ms = int((time.monotonic() - start) * 1000)
             logger.warning("planner 超时（%.1fs），降级跳过", agent_settings.PLANNER_TIMEOUT)
             emit(PLANNER_FAILED_EVENT, "planner", {"reason": "timeout", "cost_time_ms": cost_time_ms}, status="failed")
@@ -149,9 +179,8 @@ def make_planner_node(tools: list | None = None):
             }
         except Exception as e:
             # LLM 调用本身抛出的异常（网络错误 / openai 403 无权限 / 配额等）：
-            # 与 verifier 的 except Exception 降级同理，planner 必须对主流程透明。
-            # 实测：planner 模型无 API 权限时 openai 抛 PermissionDeniedError，
-            # 若不捕获会直接把 500 抛给整条请求，违背"规划失败不影响回复"的设计
+            # planner 必须对主流程透明（实测：planner 模型无权限时 openai 抛
+            # PermissionDeniedError，不捕获会直接把 500 抛给整条请求）
             cost_time_ms = int((time.monotonic() - start) * 1000)
             logger.warning("planner LLM 调用失败，降级跳过：%s", e)
             emit(PLANNER_FAILED_EVENT, "planner", {"reason": "llm_error", "cost_time_ms": cost_time_ms}, status="failed")
@@ -165,7 +194,6 @@ def make_planner_node(tools: list | None = None):
 
         # 清洗工具名：planner 可能输出近似名，容错解析后丢弃非法名（spec 7.2）
         cleaned_tools = sanitize_required_tools(plan.required_tools, valid_names)
-        # 清洗后的工具名回写 plan（plan 是 pydantic 对象，用 model_copy 更新）
         plan = plan.model_copy(update={"required_tools": cleaned_tools})
         result = plan.model_dump()
 
@@ -181,7 +209,7 @@ def make_planner_node(tools: list | None = None):
                 "planner_status": "skipped",
                 "planner_reason": "low_confidence",
                 "messages": [SystemMessage(
-                    content=_format_plan_system_message(plan) + "\n（置信度较低，仅供参考）",
+                    content=format_plan_system_message(plan) + "\n（置信度较低，仅供参考）",
                     name=PLANNER_MARKER,
                 )],
                 "planner_cost_ms": cost_time_ms,
@@ -198,7 +226,7 @@ def make_planner_node(tools: list | None = None):
             "planner_status": "planned",
             "planner_reason": "",
             "messages": [SystemMessage(
-                content=_format_plan_system_message(plan),
+                content=format_plan_system_message(plan),
                 name=PLANNER_MARKER,
             )],
             "planner_cost_ms": cost_time_ms,

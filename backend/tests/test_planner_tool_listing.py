@@ -1,10 +1,10 @@
 """planner 动态工具清单测试：从工具列表生成清单文本 + 工具名容错"""
 
-from app.services.agent.capabilities.planner.tool_listing import (
-    build_tool_section,
+from app.services.agent.capabilities.planner.node import (
     resolve_tool_name,
     sanitize_required_tools,
 )
+from app.services.agent.context.planner import build_tool_section
 
 
 class _FakeTool:

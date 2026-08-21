@@ -1,6 +1,6 @@
 """planner 动态 few-shot 测试：按 L1 粗判 + 动态选择示例 + 工具名动态替换"""
 
-from app.services.agent.capabilities.planner.few_shots import (
+from app.services.agent.context.planner import (
     build_few_shot_section,
     quick_l1_classify,
 )
