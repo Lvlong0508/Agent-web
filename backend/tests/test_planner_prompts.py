@@ -1,6 +1,13 @@
 """planner prompt 构建测试：模板稳定 + 动态段注入"""
 
-from app.services.agent.capabilities.planner.prompts import build_planner_prompt
+from langchain_core.messages import HumanMessage, SystemMessage
+
+from app.services.agent.context import (
+    build_planner_messages,
+    format_plan_system_message,
+)
+from app.services.agent.context.planner import build_planner_prompt
+from app.services.agent.capabilities.planner.schema import PlannerOutput
 from app.services.agent.prompts import PLANNER_TEMPLATE
 from app.services.agent.prompts.planner import FEW_SHOT_LIBRARY
 
@@ -73,3 +80,51 @@ def test_few_shot_library_in_prompts_planner():
     assert "QUERY" in FEW_SHOT_LIBRARY
     assert "STATISTICS" in FEW_SHOT_LIBRARY
     assert "SKILL" in FEW_SHOT_LIBRARY
+
+
+def test_build_planner_messages_returns_message_list():
+    """build_planner_messages 返回 [SystemMessage(提示词), HumanMessage(用户本轮)]"""
+    messages = build_planner_messages(
+        user_input="帮我记一笔午饭35块",
+        tools=[_FakeTool("create_expense", "新增一条账单")],
+        skills_index="## 可用技能\n- **accounting-expert**：记账分类",
+    )
+    assert len(messages) == 2
+    assert isinstance(messages[0], SystemMessage)
+    assert isinstance(messages[1], HumanMessage)
+    assert "你是一个记账助手的规划器" in messages[0].content
+    assert messages[1].content == "帮我记一笔午饭35块"
+
+
+def test_build_planner_messages_prompt_equals_planner_prompt():
+    """消息里的 SystemMessage 内容与 build_planner_prompt 输出一致（组装正确）"""
+    messages = build_planner_messages(
+        user_input="帮我记一笔",
+        tools=[_FakeTool("create_expense", "新增一条账单")],
+        skills_index="",
+    )
+    expected = build_planner_prompt(
+        "帮我记一笔",
+        [_FakeTool("create_expense", "新增一条账单")],
+        "",
+    )
+    assert messages[0].content == expected
+
+
+def test_format_plan_system_message_output():
+    """format_plan_system_message 输出与现 _format_plan_system_message 逐字等价"""
+    plan = PlannerOutput(
+        intent_l1="QUERY",
+        intent_l2="QUERY_BY_DATE",
+        goal="查询本周账单",
+        plan_steps=[{"step_id": 1, "action": "查询本周账单", "suggested_tools": ["list_expenses_by_date"], "depends_on": []}],
+        required_tools=["list_expenses_by_date"],
+        required_skills=[],
+        confidence=0.9,
+    )
+    text = format_plan_system_message(plan)
+    assert "【执行规划参考】" in text
+    assert "QUERY/QUERY_BY_DATE" in text
+    assert "查询本周账单" in text
+    assert "list_expenses_by_date" in text
+    assert "0.9" in text
