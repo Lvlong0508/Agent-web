@@ -189,8 +189,8 @@ FEW_SHOT_LIBRARY: dict[str, list[dict]] = {
 FALLBACK_EXAMPLE = FEW_SHOT_LIBRARY["CHITCHAT"][0]
 
 # 关键词粗判规则：L1 -> 关键词列表（越靠前优先级越高）。供 context/planner.py
-# 的 quick_l1_classify 选择 few-shot 示例（遍历顺序 = 优先级顺序，RECORD 最先）。
-# 保持 list[str] 格式（quick_l1_classify 用 for kw in keywords 遍历，dict 会破坏逻辑）。
+# 的 quick_l1_classify 选择 few-shot 示例。保持 list[str] 格式（quick_l1_classify 用
+# for kw in keywords 遍历，dict 会破坏逻辑）。
 # COMPOUND 放最前：并列连接词（再/还有/另外）是高区分信号，应先于具体意图命中，
 # 否则含"查""记"的复合输入会被 QUERY/RECORD 劫持，COMPOUND 永远轮不到。
 _QUICK_KEYWORDS: dict[str, list[str]] = {
