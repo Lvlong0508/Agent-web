@@ -206,6 +206,42 @@ async def test_chat_stream_prepends_system_prompt(chat_service):
 
 
 @pytest.mark.asyncio
+async def test_chat_stream_injects_retrieved_skills(monkeypatch, chat_service):
+    """chat_stream 检索一次，技能索引进 system prompt 与图 state"""
+    conv = Conversation(_id="c1", user_id="anonymous")
+    chat_service.conv_repo.get_by_id = AsyncMock(return_value=conv)
+    chat_service.msg_repo.list_by_conversation = AsyncMock(return_value=[])
+    chat_service.msg_repo.create = AsyncMock(return_value=None)
+
+    graph_input = {}
+    mock_chunk = MagicMock()
+    mock_chunk.content = "回复"
+    mock_meta = {"langgraph_node": "agent"}
+
+    async def fake_astream(input, **kwargs):
+        graph_input.update(input)
+        yield ("messages", (mock_chunk, mock_meta))
+
+    chat_service.graph = MagicMock()
+    chat_service.graph.astream = fake_astream
+
+    # 检索返回固定技能索引（mock 掉真实 Chroma 调用）
+    expected_index = "## 可用技能\n- **accounting-expert**: 记账知识"
+    async def _fake_retrieve(query):
+        return expected_index
+    monkeypatch.setattr("app.services.chat_service.get_relevant_skills_prompt", _fake_retrieve)
+
+    async for _ in chat_service.chat_stream("c1", "记账怎么分类", agent_settings.MODEL_OLLAMA):
+        pass
+
+    # 技能索引进 system prompt
+    messages = graph_input["messages"]
+    assert "accounting-expert" in messages[0].content
+    # 技能索引进图 state（planner 从 state 读取）
+    assert graph_input["skills_index"] == expected_index
+
+
+@pytest.mark.asyncio
 async def test_chat_stream_pushes_generated_title(chat_service):
     """测试标题节点生成的标题会以 SSE 事件推给前端"""
     conv = Conversation(_id="c1", user_id="anonymous")

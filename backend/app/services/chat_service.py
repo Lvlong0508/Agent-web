@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 import uuid
@@ -22,7 +23,7 @@ from app.services.agent import (
     PLANNER_FAILED_EVENT,
     build_agent_graph,
     build_agent_messages,
-    get_skills_index_prompt,  # L0 技能索引：注入首轮 system prompt
+    get_relevant_skills_prompt,  # L0 技能索引：注入首轮 system prompt
 )
 # chat 流式会话子包：chat_stream 拆分出的可独立单测单元（spec 2026-08-17）
 from app.services.chat import (
@@ -41,6 +42,10 @@ logger = logging.getLogger(__name__)
 # 用户通道统一友好错误文案：SSE error 事件只下发此文案，绝不拼接任何内部细节
 # （规格 7.1：用户只需知道出错，管理员详情走 agent_runs 落库）
 USER_FRIENDLY_ERROR = "小励出了点问题，请稍后再试吧"
+
+# 技能检索超时（秒）：embedding 服务挂起/超慢时中止，避免首字无限等待；
+# 超时后 get_relevant_skills_prompt 走降级（回退全量/空），不阻塞聊天主流程
+SKILL_RETRIEVAL_TIMEOUT = 2.0
 
 
 class ChatService:
@@ -162,8 +167,14 @@ class ChatService:
         # 注入当前日期：agent 构造日期类工具参数（如"8月14日"账单）时才知道
         # 今天是哪年，不会幻觉成往年（实测用 2023 年查询当月账单致查空）
         today = time.strftime("%Y-%m-%d", time.localtime())
+        # 按用户输入检索 top-K 技能，生成 L0 索引文本（检索异常内部降级为全量/空）。
+        # 加超时保护：embedding 服务挂起时不能让首字无限等待（检索只依赖 content，
+        # 与历史拉取并行执行可缩短首字延迟）
+        skills_index = await asyncio.wait_for(
+            get_relevant_skills_prompt(content), timeout=SKILL_RETRIEVAL_TIMEOUT
+        )
         langchain_messages = build_agent_messages(
-            history, today, get_skills_index_prompt()
+            history, today, skills_index
         )
 
         # 4. 会话状态与事件订阅（替代原闭包 + nonlocal）
@@ -207,6 +218,8 @@ class ChatService:
                     "user_id": user_id,  # 注入当前用户：图节点查询按用户隔离
                     "model": model,
                     "thinking": thinking,
+                    # 技能检索结果：planner 节点从 state 读取，全图只用一份 top-K 结果
+                    "skills_index": skills_index,
                     # 精纯历史参考（含本轮 user）：来自 context 折叠后的
                     # langchain_messages[1:] = [历史参考块, 本轮问题]，与传给
                     # agent 的记忆一致，无工具轮/重写轮噪音。
