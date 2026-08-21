@@ -24,6 +24,12 @@ class AgentState(MessagesState):
     trace_id: str            # 请求级追踪 ID：chat_stream 注入 config 后节点写入，供落库
     error_info: str          # 节点异常时写入的摘要，由 updates 流带出（管理员可查）
 
+    # ---- skill 检索装配（chat_service 注入）----
+    # 技能 L0 索引文本：chat_stream 检索 top-K 后注入，planner 节点从 state 读取
+    # （全图只用一份检索结果，避免 planner 重复检索/全量膨胀）。
+    # 可选字段：缺省/降级时节点用 state.get 回退空串，与 planner_result 惯例一致
+    skills_index: str | None
+
     # ---- title 能力贡献 ----
     # 标题节点产出的新标题：必须声明在状态 schema 中，stream_mode="updates"
     # 才会把这个字段随节点输出一起推给调用方（未声明的键会被 LangGraph 过滤）

@@ -44,7 +44,7 @@ _PLANNER_TEMPLATE = """你是一个记账助手的规划器。你的任务是分
 3. confidence 评分：≥0.9 非常确定 / 0.7-0.9 基本确定 / <0.7 不确定
 4. 如果不确定选哪个工具，required_tools 留空数组，让执行层自行决定
 5. COMPOUND 意图时，plan_steps 中每个步骤对应一个子意图
-6. required_skills 从技能摘要中选择技能方向；不确定时留空数组
+6. required_skills 仅从上方技能摘要中选择；技能摘要中没有匹配的技能方向时输出空数组，不要强行匹配
 """
 
 

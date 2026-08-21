@@ -27,7 +27,6 @@ from app.services.agent.capabilities.planner.tool_listing import sanitize_requir
 from app.services.agent.context.agent import HISTORY_REFERENCE_MARKER
 from app.services.agent.events import emit
 from app.services.agent.llm import create_llm
-from app.services.agent.skills import get_skills_index_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -90,10 +89,13 @@ def make_planner_node(tools: list | None = None):
             )
         user_input = _extract_user_input(state.get("messages", []))
         tools_list = tools or []
+        # 技能索引从 state 读取（chat_stream 已检索 top-K 注入），不再自调全量；
+        # 缺省空串（无技能/降级时 skill 机制透明）
+        skills_index = state.get("skills_index", "")
         prompt = build_planner_prompt(
             user_input,
             tools_list,
-            get_skills_index_prompt(),
+            skills_index,
         )
         valid_names = [t.name for t in tools_list]
 

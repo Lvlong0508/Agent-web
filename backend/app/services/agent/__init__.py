@@ -29,7 +29,7 @@ from app.services.agent.context.agent import build_agent_messages
 from app.services.agent.events import CapabilityEvent, EventRouter, serialize_message
 from app.services.agent.prompts import REPLY_ON_VERIFY_FAILED
 from app.services.agent.registry import build_agent_graph
-from app.services.agent.skills import get_skills_index_prompt
+from app.services.agent.skills import get_skills_index_prompt, get_relevant_skills_prompt
 
 __all__ = [
     "AgentState",
@@ -52,4 +52,5 @@ __all__ = [
     "route_after_verify",
     "serialize_message",
     "should_continue",
+    "get_relevant_skills_prompt",
 ]
