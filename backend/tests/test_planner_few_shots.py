@@ -39,3 +39,26 @@ def test_build_few_shot_section_empty_library_fallback():
     """粗判的 L1 无示例时兜底注入通用示例（不返回空段）"""
     section = build_few_shot_section("你好呀", ["create_expense"])
     assert section  # 非空
+
+
+def test_replace_placeholder_by_prefix_match():
+    """占位符按工具名前缀匹配：modify_tool→update_expense, delete_tool→delete_expense"""
+    from app.services.agent.context.planner import _replace_tool_names
+    output = {
+        "required_tools": ["{query_tool}", "{modify_tool}", "{delete_tool}"],
+        "plan_steps": [{"suggested_tools": ["{create_tool}", "{stats_tool}"]}],
+    }
+    result = _replace_tool_names(
+        output,
+        ["create_expense", "list_expenses_by_date", "update_expense", "delete_expense", "calculate"],
+    )
+    assert result["required_tools"] == ["list_expenses_by_date", "update_expense", "delete_expense"]
+    assert result["plan_steps"][0]["suggested_tools"] == ["create_expense", "calculate"]
+
+
+def test_replace_placeholder_missing_tool_empty():
+    """占位符对应类别工具不存在时替换为空串（不留假名）"""
+    from app.services.agent.context.planner import _replace_tool_names
+    output = {"required_tools": ["{modify_tool}"]}
+    result = _replace_tool_names(output, ["create_expense"])
+    assert result["required_tools"] == [""]

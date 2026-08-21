@@ -34,16 +34,20 @@ def quick_l1_classify(user_input: str) -> str:
 def _replace_tool_names(output: dict, current_tools: list[str]) -> dict:
     """把示例 output 里的工具名占位符替换为当前真实工具名。
 
-    current_tools：当前可用工具名列表。占位符对应的默认工具名在当前工具集
-    中则用默认名，否则替换为空（工具不可用时不留假名）。
+    current_tools：当前可用工具名列表。占位符按"语义前缀"匹配——例如
+    {create_tool} 匹配以 create_ 开头的工具，匹配到第一个即替换，匹配不到
+    替换为空（工具不可用时不留假名）。新增业务工具只要遵守命名规范
+    （create_/list_/update_/delete_ 前缀），示例库与占位符表零改动。
     """
     import json
 
     text = json.dumps(output, ensure_ascii=False)
-    for placeholder, default_name in _TOOL_PLACEHOLDERS.items():
+    for placeholder, prefixes in _TOOL_PLACEHOLDERS.items():
         if placeholder in text:
-            # 默认名在当前工具集则替换为默认名，否则替换为空（工具不可用时不留假名）
-            replacement = default_name if default_name in current_tools else ""
+            # 从当前工具集找第一个名字以任一前缀开头的工具
+            replacement = next(
+                (name for name in current_tools if name.startswith(prefixes)), ""
+            )
             text = text.replace(placeholder, replacement)
     return json.loads(text)
 
