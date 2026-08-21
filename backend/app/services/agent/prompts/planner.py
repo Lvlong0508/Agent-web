@@ -11,7 +11,7 @@ PLANNER_TEMPLATE = """记账助手规划器。分析用户意图，制定执行�
 1. 优先级（同时符合多类时取最高）：RECORD > MODIFY > DELETE > QUERY > STATISTICS > SKILL > CHITCHAT
 2. 关键词参考：记/花/支出→RECORD | 改/更新→MODIFY | 删→DELETE | 查/看→QUERY | 统计/汇总→STATISTICS | 分类/建议→SKILL
 3. 无法明确判定时，confidence < 0.7，intent_l1 填 CHITCHAT，禁止强行分类
-4. COMPOUND 严控：仅当两个独立并列核心动作（"记"还有"查"）才判；同一目标先后步骤（查完再统计）不算
+4. COMPOUND 严控：仅当两个独立并列核心动作（"再""还有""另外"）才判；同一目标先后步骤（"查完再统计"）不算
 5. intent_l1 仅限 8 值：RECORD/QUERY/MODIFY/DELETE/STATISTICS/SKILL/CHITCHAT/COMPOUND
 
 ## 意图定义（L1→L2 示例）
@@ -34,7 +34,7 @@ PLANNER_TEMPLATE = """记账助手规划器。分析用户意图，制定执行�
 1. 只输出合法 JSON 对象，不含 markdown 代码块或额外文字
 2. required_tools 必须与工具清单名称完全一致；不确定时留空数组
 3. required_skills 仅从技能摘要选；无匹配则留空数组
-4. confidence：≥0.9 非常确定 / 0.7-0.9 基本确定 / <0.7 不确定（当 CHITCHAT）
+4. confidence：≥0.9 非常确定 / 0.7-0.9 基本确定 / <0.7 不确定（归 CHITCHAT）
 5. COMPOUND 时 plan_steps 每步对应一个子意图
 """
 
