@@ -19,3 +19,10 @@ def test_skills_dir_migrated_to_agent_settings():
     from app.config.agent_settings import agent_settings
 
     assert agent_settings.SKILLS_DIR == "skills"
+
+
+def test_chroma_config_defaults():
+    """Chroma 基础设施配置默认值：localhost:8000，embedding 维度 1024"""
+    assert settings.CHROMA_HOST == "localhost"
+    assert settings.CHROMA_PORT == 8000
+    assert settings.EMBEDDING_DIM == 1024

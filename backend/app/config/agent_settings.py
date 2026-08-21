@@ -58,6 +58,17 @@ class AgentSettings(BaseSettings):
     # ---- skill 机制（从原 settings 迁入）----
     SKILLS_DIR: str = "skills"                 # 相对 BASE_DIR 或绝对路径
 
+    # ---- 知识库（向量检索）配置 ----
+    # kb_type -> collection 名映射：四类库各占一个 collection，可独立调参
+    CHROMA_COLLECTIONS: dict[str, str] = {
+        "enterprise": "kb_enterprise",  # 企业公共知识库（全体用户可查）
+        "user": "kb_user",              # 用户私有知识库（owner_id 隔离）
+        "tool": "kb_tools",             # AI 工具库（预留：按需装配 tool）
+        "skill": "kb_skills",           # skill 库（预留：按需装配 skill）
+    }
+    # embedding 模型名：DashScope text-embedding-v3（升级版，质量优于 v2）
+    EMBEDDING_MODEL: str = "text-embedding-v3"
+
     BASE_DIR: ClassVar[Path] = Path(__file__).resolve().parents[2]  # backend/
 
     # extra="ignore"：忽略 .env 中属于 settings.py 的基础设施变量（MONGODB_* 等），

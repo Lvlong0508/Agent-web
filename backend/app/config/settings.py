@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     DASHSCOPE_API_KEY: str = ""                     # 阿里云百炼 API Key
     DASHSCOPE_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
+    CHROMA_HOST: str = "localhost"
+    CHROMA_PORT: int = 8000
+
+    EMBEDDING_DIM: int = 1024
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

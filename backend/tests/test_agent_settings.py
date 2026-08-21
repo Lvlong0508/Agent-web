@@ -53,3 +53,19 @@ def test_base_dir_points_to_backend_root():
     """agent_settings 的 BASE_DIR 同样指向 backend/ 根目录"""
     assert agent_settings.BASE_DIR == Path(__file__).resolve().parents[1]
     assert agent_settings.BASE_DIR.name == "backend"
+
+
+def test_chroma_collections_mapping():
+    """四类库 collection 映射：kb_type -> collection 名"""
+    expected = {
+        "enterprise": "kb_enterprise",
+        "user": "kb_user",
+        "tool": "kb_tools",
+        "skill": "kb_skills",
+    }
+    assert agent_settings.CHROMA_COLLECTIONS == expected
+
+
+def test_embedding_model_default():
+    """embedding 模型默认 text-embedding-v3"""
+    assert agent_settings.EMBEDDING_MODEL == "text-embedding-v3"
