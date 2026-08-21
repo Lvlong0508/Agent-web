@@ -79,11 +79,15 @@ def test_planner_template_exported_from_prompts_init():
 
 
 def test_few_shot_library_in_prompts_planner():
-    """示例库数据位于 prompts/planner.py（静态素材归 prompts 层）"""
+    """示例库数据位于 prompts/planner.py（8 类 L1 全覆盖）"""
     assert "RECORD" in FEW_SHOT_LIBRARY
     assert "QUERY" in FEW_SHOT_LIBRARY
     assert "STATISTICS" in FEW_SHOT_LIBRARY
     assert "SKILL" in FEW_SHOT_LIBRARY
+    assert "MODIFY" in FEW_SHOT_LIBRARY   # 新增
+    assert "DELETE" in FEW_SHOT_LIBRARY   # 新增
+    assert "COMPOUND" in FEW_SHOT_LIBRARY # 新增
+    assert "CHITCHAT" in FEW_SHOT_LIBRARY # 新增
 
 
 def test_build_planner_messages_returns_message_list():

@@ -38,25 +38,30 @@ PLANNER_TEMPLATE = """记账助手规划器。分析用户意图，制定执行�
 5. COMPOUND 时 plan_steps 每步对应一个子意图
 """
 
-# 工具名占位符：示例输出里用 {tool_xxx} 占位，运行时替换为真实工具名。
-# 占位名语义即"该示例需要什么类型的工具"，不绑定具体实现
+# 工具名占位符：示例 output 用占位符，运行时由 _replace_tool_names 替换为真实工具名。
+# 占位符语义 = 工具类别（创建/查询/修改/删除/计算），按工具名前缀自动匹配当前工具集，
+# 新增业务工具只需遵守命名规范（create_/list_/update_/delete_ 前缀），示例库零改动。
 _TOOL_PLACEHOLDERS = {
-    "{create_tool}": "create_expense",   # 新增账单
-    "{query_tool}": "list_expenses_by_date",  # 按日期查账单
-    "{stats_tool}": "calculate",         # 计算
+    "{create_tool}": ("create_",),      # 新增类工具：create_expense/create_stock...
+    "{query_tool}": ("list_", "get_"),  # 查询类工具：list_expenses/get_expense...
+    "{modify_tool}": ("update_",),      # 修改类工具：update_expense/update_stock...
+    "{delete_tool}": ("delete_",),      # 删除类工具：delete_expense/delete_stock...
+    "{stats_tool}": ("calculate",),     # 计算类工具：calculate...
 }
 
-# 示例库：key 为 L1，value 为示例列表（input + output 占位符形式）
+# 示例库：key 为 L1，value 为示例列表（input + output）。每个 output 严格遵循
+# PlanStep schema 四字段（step_id/action/suggested_tools/depends_on），
+# output 保持 dict 格式（_replace_tool_names 依赖 json.dumps→replace→json.loads）。
 FEW_SHOT_LIBRARY: dict[str, list[dict]] = {
     "RECORD": [
         {
-            "input": "帮我记一笔，今天午饭花了35块",
+            "input": "记一笔午饭35块",
             "output": {
                 "intent_l1": "RECORD",
                 "intent_l2": "RECORD_SINGLE",
-                "goal": "新增一笔餐饮支出记录",
+                "goal": "记录一笔35元的午餐支出",
                 "plan_steps": [
-                    {"step_id": 1, "action": "新增餐饮账单", "suggested_tools": ["{create_tool}"], "depends_on": []},
+                    {"step_id": 1, "action": "创建账单", "suggested_tools": ["{create_tool}"], "depends_on": []},
                 ],
                 "required_tools": ["{create_tool}"],
                 "required_skills": [],
@@ -66,7 +71,7 @@ FEW_SHOT_LIBRARY: dict[str, list[dict]] = {
     ],
     "QUERY": [
         {
-            "input": "帮我查一下上周的账单",
+            "input": "查上周的账单",
             "output": {
                 "intent_l1": "QUERY",
                 "intent_l2": "QUERY_BY_DATE",
@@ -76,17 +81,51 @@ FEW_SHOT_LIBRARY: dict[str, list[dict]] = {
                 ],
                 "required_tools": ["{query_tool}"],
                 "required_skills": [],
-                "confidence": 0.92,
+                "confidence": 0.9,
+            },
+        },
+    ],
+    "MODIFY": [
+        {
+            "input": "把昨天的午饭改成40",
+            "output": {
+                "intent_l1": "MODIFY",
+                "intent_l2": "MODIFY_AMOUNT",
+                "goal": "修改昨天午餐账单金额为40元",
+                "plan_steps": [
+                    {"step_id": 1, "action": "查询目标账单", "suggested_tools": ["{query_tool}"], "depends_on": []},
+                    {"step_id": 2, "action": "修改金额", "suggested_tools": ["{modify_tool}"], "depends_on": [1]},
+                ],
+                "required_tools": ["{query_tool}", "{modify_tool}"],
+                "required_skills": [],
+                "confidence": 0.9,
+            },
+        },
+    ],
+    "DELETE": [
+        {
+            "input": "删掉昨天那笔打车",
+            "output": {
+                "intent_l1": "DELETE",
+                "intent_l2": "DELETE_SINGLE",
+                "goal": "删除昨天的打车账单",
+                "plan_steps": [
+                    {"step_id": 1, "action": "查询目标账单", "suggested_tools": ["{query_tool}"], "depends_on": []},
+                    {"step_id": 2, "action": "删除账单", "suggested_tools": ["{delete_tool}"], "depends_on": [1]},
+                ],
+                "required_tools": ["{query_tool}", "{delete_tool}"],
+                "required_skills": [],
+                "confidence": 0.9,
             },
         },
     ],
     "STATISTICS": [
         {
-            "input": "这个月总共花了多少钱",
+            "input": "本月花了多少",
             "output": {
                 "intent_l1": "STATISTICS",
                 "intent_l2": "STAT_SUMMARY",
-                "goal": "统计本月支出总额",
+                "goal": "统计本月总支出",
                 "plan_steps": [
                     {"step_id": 1, "action": "查询本月账单", "suggested_tools": ["{query_tool}"], "depends_on": []},
                     {"step_id": 2, "action": "汇总金额", "suggested_tools": ["{stats_tool}"], "depends_on": [1]},
@@ -99,35 +138,55 @@ FEW_SHOT_LIBRARY: dict[str, list[dict]] = {
     ],
     "SKILL": [
         {
-            "input": "这笔开销该怎么分类",
+            "input": "这笔怎么分类",
             "output": {
                 "intent_l1": "SKILL",
-                "intent_l2": "SKILL_GENERAL",
-                "goal": "参考记账技能的分类规则给出建议",
+                "intent_l2": "SKILL_CLASSIFY",
+                "goal": "获取分类建议",
                 "plan_steps": [
-                    {"step_id": 1, "action": "读取记账技能说明", "suggested_tools": ["read_skill"], "depends_on": []},
+                    {"step_id": 1, "action": "读取分类技能说明", "suggested_tools": ["read_skill"], "depends_on": []},
                 ],
                 "required_tools": ["read_skill"],
                 "required_skills": ["记账分类"],
-                "confidence": 0.88,
+                "confidence": 0.85,
+            },
+        },
+    ],
+    "CHITCHAT": [
+        {
+            "input": "你好",
+            "output": {
+                "intent_l1": "CHITCHAT",
+                "intent_l2": "CHITCHAT_GREET",
+                "goal": "打招呼",
+                "plan_steps": [],
+                "required_tools": [],
+                "required_skills": [],
+                "confidence": 0.95,
+            },
+        },
+    ],
+    "COMPOUND": [
+        {
+            "input": "查一下上周的餐饮支出，再帮我记一笔今天午饭35块",
+            "output": {
+                "intent_l1": "COMPOUND",
+                "intent_l2": "COMPOUND_QUERY_RECORD",
+                "goal": "查询上周餐饮支出并记录今天午饭",
+                "plan_steps": [
+                    {"step_id": 1, "action": "查询上周餐饮账单", "suggested_tools": ["{query_tool}"], "depends_on": []},
+                    {"step_id": 2, "action": "记录今天午饭账单", "suggested_tools": ["{create_tool}"], "depends_on": []},
+                ],
+                "required_tools": ["{query_tool}", "{create_tool}"],
+                "required_skills": [],
+                "confidence": 0.85,
             },
         },
     ],
 }
 
-# 兜底示例：粗判 L1 无对应示例时使用（如 CHITCHAT / COMPOUND / MODIFY / DELETE）
-FALLBACK_EXAMPLE = {
-    "input": "你好",
-    "output": {
-        "intent_l1": "CHITCHAT",
-        "intent_l2": "CHITCHAT_GENERAL",
-        "goal": "与用户进行日常对话",
-        "plan_steps": [],
-        "required_tools": [],
-        "required_skills": [],
-        "confidence": 0.9,
-    },
-}
+# 兜底示例：粗判 L1 无对应示例时使用（8 类全覆盖后实际不会触发，保留兼容）
+FALLBACK_EXAMPLE = FEW_SHOT_LIBRARY["CHITCHAT"][0]
 
 # 关键词粗判规则：L1 -> 关键词列表（越靠前优先级越高）。供 context/planner.py
 # 的 quick_l1_classify 选择 few-shot 示例（见 spec §3.2）
