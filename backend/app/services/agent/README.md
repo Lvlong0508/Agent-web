@@ -42,7 +42,8 @@ capabilities/<name>/
 
 - 编排层（node.py）**只能从包级 `__init__` 导入**：`from app.services.agent.context import ...`
 - 禁止 `from app.services.agent.context.planner import ...`（深层 import 越过 init）
-- 素材（prompts）与组装（context）之间的引用也经 `__init__` 导出
+- 顶层包之间（如 `context` 与 `prompts`，同级）的**静态素材可深层引用**：`context/planner.py` 可直接 `from app.services.agent.prompts.planner import ...`
+- 但**被编排层或其他包引用时**必须经包级 `__init__` 导出：如 `PLANNER_TEMPLATE` 需经 `app.services.agent.prompts` 导出后供编排层使用
 
 ## 五、反模式清单（不要这样做）
 
