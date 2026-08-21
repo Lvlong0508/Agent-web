@@ -77,3 +77,14 @@ def test_replace_placeholder_missing_tool_empty():
     output = {"required_tools": ["{modify_tool}"]}
     result = _replace_tool_names(output, ["create_expense"])
     assert result["required_tools"] == [""]
+
+
+def test_quick_l1_classify_compound_overclassification_documented():
+    """记录已知偏差：含'再'的单意图输入会被粗判为 COMPOUND。
+
+    这是 COMPOUND 置前带来的精度权衡——'再'是常见口语连接词（"再帮我记一笔"其实是
+    单一 RECORD），会被误判为 COMPOUND。但粗判只影响 few-shot 示例选择，最终意图由
+    LLM 按规则 4 重新判定，因此不影响最终规划质量。此用例固化该行为，防止未来收紧
+    关键词时误伤"查昨天的，再统计本月"这类真复合输入。
+    """
+    assert quick_l1_classify("再帮我记一笔昨天的打车") == "COMPOUND"

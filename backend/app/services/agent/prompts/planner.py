@@ -191,8 +191,13 @@ FALLBACK_EXAMPLE = FEW_SHOT_LIBRARY["CHITCHAT"][0]
 # 关键词粗判规则：L1 -> 关键词列表（越靠前优先级越高）。供 context/planner.py
 # 的 quick_l1_classify 选择 few-shot 示例。保持 list[str] 格式（quick_l1_classify 用
 # for kw in keywords 遍历，dict 会破坏逻辑）。
-# COMPOUND 放最前：并列连接词（再/还有/另外）是高区分信号，应先于具体意图命中，
-# 否则含"查""记"的复合输入会被 QUERY/RECORD 劫持，COMPOUND 永远轮不到。
+# COMPOUND 放最前：并列连接词（再/还有/另外/同时/并且/以及）是高区分信号，应先于
+# 具体意图命中，否则含"查""记"的复合输入会被 QUERY/RECORD 劫持，COMPOUND 永远轮不到。
+# 【精度权衡】"再/同时/并且/以及"等连接词常出现在单意图口语里（如"再帮我记一笔昨天的
+# 打车"其实是单一 RECORD），会被误判为 COMPOUND。但粗判仅用于挑选 few-shot 示例，
+# 最终意图由 LLM 按规则 4 重新判定，因此这种误判不影响最终规划质量——用"宁可多判复合、
+# 不遗漏真复合"的取舍换取对真正复合输入的覆盖。若想收紧（要求连接词旁出现另一意图词），
+# 需同步设计回归用例，避免误伤"查昨天的，再统计本月"这类真复合输入。
 _QUICK_KEYWORDS: dict[str, list[str]] = {
     "COMPOUND": ["再", "还有", "另外", "同时", "并且", "以及"],
     "RECORD": ["记一笔", "记", "新增", "添加", "加一笔", "支出", "消费"],
