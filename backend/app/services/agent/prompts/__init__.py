@@ -170,3 +170,5 @@ def build_rewrite_prompt(feedback: str, has_tool_result: bool = False) -> str:
 
 # 验证失败超过重试次数后返回给用户的固定文案
 REPLY_ON_VERIFY_FAILED = "小励出现了点问题，请稍后再尝试吧"
+
+from app.services.agent.prompts.planner import PLANNER_TEMPLATE  # noqa: E402  供 context 层经包级 init 引用

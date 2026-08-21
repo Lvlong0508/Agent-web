@@ -1,6 +1,8 @@
 """planner prompt 构建测试：模板稳定 + 动态段注入"""
 
 from app.services.agent.capabilities.planner.prompts import build_planner_prompt
+from app.services.agent.prompts import PLANNER_TEMPLATE
+from app.services.agent.prompts.planner import FEW_SHOT_LIBRARY
 
 
 class _FakeTool:
@@ -54,3 +56,20 @@ def test_build_planner_prompt_includes_few_shot():
         skills_index="",
     )
     assert "输出示例" in prompt
+
+
+def test_planner_template_exported_from_prompts_init():
+    """PLANNER_TEMPLATE 经 prompts 包 __init__ 导出（编排层经包级导入）"""
+    assert "你是一个记账助手的规划器" in PLANNER_TEMPLATE
+    assert "RECORD" in PLANNER_TEMPLATE
+    assert "{tool_section}" in PLANNER_TEMPLATE
+    assert "{skill_section}" in PLANNER_TEMPLATE
+    assert "{few_shot_section}" in PLANNER_TEMPLATE
+
+
+def test_few_shot_library_in_prompts_planner():
+    """示例库数据位于 prompts/planner.py（静态素材归 prompts 层）"""
+    assert "RECORD" in FEW_SHOT_LIBRARY
+    assert "QUERY" in FEW_SHOT_LIBRARY
+    assert "STATISTICS" in FEW_SHOT_LIBRARY
+    assert "SKILL" in FEW_SHOT_LIBRARY
