@@ -58,6 +58,10 @@ class SearchResultItem(BaseModel):
     source_doc_id: str = Field(description="原始文档 ID，前端凭它回查原文")
     kb_type: KBType
 
+class SkillCandidate(BaseModel):
+    name: str = Field(description="技能名（= source_doc_id）")
+    description: str = Field(description="技能描述（frontmatter description）")
+    score: float = Field(description="相似度分数（越高越相关）")
 
 class ChunkSearchResponse(BaseModel):
     """检索响应：按相关度排序的命中文档块列表"""

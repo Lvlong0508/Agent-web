@@ -69,3 +69,10 @@ def test_chroma_collections_mapping():
 def test_embedding_model_default():
     """embedding 模型默认 text-embedding-v3"""
     assert agent_settings.EMBEDDING_MODEL == "text-embedding-v3"
+
+
+def test_skill_retrieval_config_defaults():
+    """技能检索配置默认值：top_k=5 / 阈值0.5 / 常驻技能空列表"""
+    assert agent_settings.SKILL_RETRIEVE_TOP_K == 5
+    assert agent_settings.SKILL_SIMILARITY_THRESHOLD == 0.5
+    assert agent_settings.SKILL_ALWAYS_INJECT == []

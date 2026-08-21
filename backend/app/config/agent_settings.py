@@ -58,6 +58,10 @@ class AgentSettings(BaseSettings):
     # ---- skill 机制（从原 settings 迁入）----
     SKILLS_DIR: str = "skills"                 # 相对 BASE_DIR 或绝对路径
 
+    SKILL_RETRIEVE_TOP_K: int = 5
+    SKILL_SIMILARITY_THRESHOLD: float = 0.5
+    SKILL_ALWAYS_INJECT: list[str] = []
+
     # ---- 知识库（向量检索）配置 ----
     # kb_type -> collection 名映射：四类库各占一个 collection，可独立调参
     CHROMA_COLLECTIONS: dict[str, str] = {

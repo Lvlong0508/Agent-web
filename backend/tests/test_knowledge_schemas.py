@@ -9,6 +9,7 @@ from app.schemas.knowledge import (
     ChunkSearchRequest,
     ChunkSearchResponse,
     SearchResultItem,
+    SkillCandidate,
 )
 
 
@@ -91,3 +92,16 @@ def test_search_response_build():
     )
     assert resp.items[0].score == 0.92
     assert resp.items[0].source_doc_id == "doc_001"
+
+
+def test_skill_candidate_model():
+    """SkillCandidate 字段：name/description/score（不含 source_doc_id，与 name 恒等冗余）"""
+    c = SkillCandidate(
+        name="accounting-expert",
+        description="记账知识",
+        score=0.85,
+    )
+    assert c.name == "accounting-expert"
+    assert c.description == "记账知识"
+    assert c.score == 0.85
+    assert not hasattr(c, "source_doc_id")
