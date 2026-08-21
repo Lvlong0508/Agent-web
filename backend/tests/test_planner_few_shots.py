@@ -26,6 +26,21 @@ def test_quick_l1_classify_fallback():
     assert quick_l1_classify("你好呀") == "CHITCHAT"
 
 
+def test_quick_l1_classify_modify():
+    """关键词粗判：'改' → MODIFY（新增）"""
+    assert quick_l1_classify("把昨天的改成40") == "MODIFY"
+
+
+def test_quick_l1_classify_delete():
+    """关键词粗判：'删' → DELETE（新增）"""
+    assert quick_l1_classify("删掉刚才那笔") == "DELETE"
+
+
+def test_quick_l1_classify_compound():
+    """关键词粗判：'再' 并列连接词 → COMPOUND（新增）"""
+    assert quick_l1_classify("查昨天的，再统计本月") == "COMPOUND"
+
+
 def test_build_few_shot_section_returns_examples_for_l1():
     """按粗判 L1 返回 1-2 个示例，工具名动态替换为当前真实工具名"""
     current_tools = ["create_expense", "list_expenses_by_date"]

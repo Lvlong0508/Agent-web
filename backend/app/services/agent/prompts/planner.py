@@ -189,12 +189,17 @@ FEW_SHOT_LIBRARY: dict[str, list[dict]] = {
 FALLBACK_EXAMPLE = FEW_SHOT_LIBRARY["CHITCHAT"][0]
 
 # 关键词粗判规则：L1 -> 关键词列表（越靠前优先级越高）。供 context/planner.py
-# 的 quick_l1_classify 选择 few-shot 示例（见 spec §3.2）
+# 的 quick_l1_classify 选择 few-shot 示例（遍历顺序 = 优先级顺序，RECORD 最先）。
+# 保持 list[str] 格式（quick_l1_classify 用 for kw in keywords 遍历，dict 会破坏逻辑）。
+# COMPOUND 放最前：并列连接词（再/还有/另外）是高区分信号，应先于具体意图命中，
+# 否则含"查""记"的复合输入会被 QUERY/RECORD 劫持，COMPOUND 永远轮不到。
 _QUICK_KEYWORDS: dict[str, list[str]] = {
-    "RECORD": ["记一笔", "记", "新增", "加一笔", "添加"],
-    "MODIFY": ["改", "修改", "更新", "变成"],
-    "DELETE": ["删", "删除", "去掉"],
-    "QUERY": ["查", "看", "查一下", "列出", "有哪些"],
-    "STATISTICS": ["多少", "总共", "合计", "统计", "平均", "占比", "汇总"],
-    "SKILL": ["怎么分类", "分类", "建议", "技能", "怎么记"],
+    "COMPOUND": ["再", "还有", "另外", "同时", "并且", "以及"],
+    "RECORD": ["记一笔", "记", "新增", "添加", "加一笔", "支出", "消费"],
+    "MODIFY": ["改", "修改", "改成", "更新", "换成", "调整为", "更正"],
+    "DELETE": ["删", "删除", "删掉", "去掉", "移除", "撤销", "不要了"],
+    "QUERY": ["查", "看", "查询", "列出", "有哪些", "找", "明细", "哪笔"],
+    "STATISTICS": ["统计", "汇总", "总共", "合计", "多少", "平均", "占比", "趋势", "分析"],
+    "SKILL": ["怎么分类", "分类", "建议", "怎么归类", "归到哪"],
+    "CHITCHAT": ["你好", "谢谢", "再见", "哈哈", "在吗"],
 }
