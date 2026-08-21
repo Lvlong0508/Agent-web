@@ -6,6 +6,9 @@
 - 必需能力（is_required=True）注册失败中断启动，可选能力失败跳过并记日志
 - 节点异常日志兜底由各能力节点函数内部的 try/except 承担（如 title/verifier 的
   降级逻辑），组合根不越权改写 builder（LangGraph 未暴露节点改写入口）
+
+CapabilityRegistryError 定义在本文件：它几乎只被本组合根抛出（register/connect/
+校验/编译各路径），与注册流程强相关，故并归此处而非独立 errors.py 文件。
 """
 
 import logging
@@ -16,9 +19,20 @@ from langgraph.graph import StateGraph
 from app.services.agent.capabilities import get_capabilities
 from app.services.agent.capabilities.core_agent.state import AgentState
 from app.services.agent.capability import AgentCapability
-from app.services.agent.errors import CapabilityRegistryError
 
 logger = logging.getLogger(__name__)
+
+
+class CapabilityRegistryError(RuntimeError):
+    """能力注册错误：携带出问题的能力名，便于定位。
+
+    注册阶段所有能力注册错误（字段冲突/节点缺失/必需能力失败/工具重名）都抛
+    本异常，由启动入口统一捕获并打印清晰错误（规格 6.3）。
+    """
+
+    def __init__(self, capability: str, message: str):
+        self.capability = capability
+        super().__init__(f"[能力 {capability}] {message}")
 
 
 def _validate_capability_order(capabilities: list[AgentCapability]) -> None:

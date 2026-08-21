@@ -5,7 +5,7 @@ import pytest
 from langchain_core.tools import tool
 
 from app.services.agent.capability import AgentCapability
-from app.services.agent.errors import CapabilityRegistryError
+from app.services.agent.registry import CapabilityRegistryError
 from app.services.agent.registry import build_agent_graph
 
 

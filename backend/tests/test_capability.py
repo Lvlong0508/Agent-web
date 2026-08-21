@@ -2,7 +2,7 @@
 import pytest
 
 from app.services.agent.capability import AgentCapability
-from app.services.agent.errors import CapabilityRegistryError
+from app.services.agent.registry import CapabilityRegistryError
 
 
 def test_capability_error_carries_capability_name():
