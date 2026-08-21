@@ -11,6 +11,8 @@ from pathlib import Path
 
 import yaml
 
+from app.utils.filesystem import list_dir_contents
+
 
 class SkillLoader:
     """技能加载器：构造时扫描一次并缓存索引，运行期只读"""
@@ -23,12 +25,9 @@ class SkillLoader:
     def _scan(self) -> None:
         """遍历技能根目录的顶层子目录，读取每个 SKILL.md 并解析进索引；
         目录不存在时索引为空（skill 机制对主流程完全透明）"""
-        if not self.skills_dir.is_dir():
-            return
-        for child in sorted(self.skills_dir.iterdir()):
+        subdirs, _ = list_dir_contents(self.skills_dir)
+        for child in subdirs:
             # 只扫顶层目录，不递归子目录（防止把 references/ 等资源目录当技能）
-            if not child.is_dir():
-                continue
             md_file = child / "SKILL.md"
             if not md_file.is_file():
                 continue
