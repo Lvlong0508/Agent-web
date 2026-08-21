@@ -39,6 +39,7 @@ class SkillLoader:
             except (UnicodeDecodeError, OSError):
                 continue
             if skill:
+                skill["mtime"] = md_file.stat().st_mtime
                 self._index.append(skill)
 
     @staticmethod
@@ -95,3 +96,12 @@ class SkillLoader:
     def skill_names(self) -> list[str]:
         """返回所有已加载技能名（测试与诊断用）"""
         return [skill["name"] for skill in self._index]
+
+    def skills(self) -> list[dict]:
+        return [dict(s) for s in self._index]
+
+    def get_skill(self, name: str) -> dict | None:
+        for skill in self._index:
+            if skill["name"] == name:
+                return dict(skill)
+        return None
