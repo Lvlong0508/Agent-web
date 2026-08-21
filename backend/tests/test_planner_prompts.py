@@ -19,17 +19,19 @@ class _FakeTool:
 
 
 def test_build_planner_prompt_contains_sections():
-    """prompt 含职责/意图定义/工具清单/输出规则，工具名动态生成"""
+    """prompt 含判定规则/意图定义/工具清单/输出规则，工具名动态生成"""
     prompt = build_planner_prompt(
         user_input="帮我记一笔午饭35块",
         tools=[_FakeTool("create_expense", "新增一条账单")],
         skills_index="## 可用技能\n- **accounting-expert**：记账分类",
     )
-    assert "你是一个记账助手的规划器" in prompt
-    assert "RECORD" in prompt          # L1 定义
-    assert "create_expense" in prompt  # 动态工具清单
-    assert "accounting-expert" in prompt  # 技能摘要
-    assert "只输出严格合法的 JSON 对象" in prompt  # 输出规则
+    assert "记账助手规划器" in prompt
+    assert "判定规则" in prompt            # 新增：判定规则段
+    assert "RECORD > MODIFY" in prompt     # 新增：优先级链
+    assert "RECORD" in prompt              # L1 定义
+    assert "create_expense" in prompt      # 动态工具清单
+    assert "accounting-expert" in prompt   # 技能摘要
+    assert "只输出合法 JSON" in prompt      # 输出规则
 
 
 def test_build_planner_prompt_skills_empty():
@@ -52,7 +54,7 @@ def test_build_planner_prompt_tools_empty():
     # 注意：模板输出规则里提到"当前可用工具清单"（文字引用），
     # 这里断言的是动态清单段标题（"## " 前缀）不出现
     assert "## 当前可用工具清单" not in prompt
-    assert "你是一个记账助手的规划器" in prompt
+    assert "记账助手规划器" in prompt
 
 
 def test_build_planner_prompt_includes_few_shot():
@@ -67,8 +69,10 @@ def test_build_planner_prompt_includes_few_shot():
 
 def test_planner_template_exported_from_prompts_init():
     """PLANNER_TEMPLATE 经 prompts 包 __init__ 导出（编排层经包级导入）"""
-    assert "你是一个记账助手的规划器" in PLANNER_TEMPLATE
-    assert "RECORD" in PLANNER_TEMPLATE
+    assert "记账助手规划器" in PLANNER_TEMPLATE
+    assert "判定规则" in PLANNER_TEMPLATE
+    assert "RECORD > MODIFY" in PLANNER_TEMPLATE
+    assert "CHITCHAT" in PLANNER_TEMPLATE
     assert "{tool_section}" in PLANNER_TEMPLATE
     assert "{skill_section}" in PLANNER_TEMPLATE
     assert "{few_shot_section}" in PLANNER_TEMPLATE
@@ -92,7 +96,7 @@ def test_build_planner_messages_returns_message_list():
     assert len(messages) == 2
     assert isinstance(messages[0], SystemMessage)
     assert isinstance(messages[1], HumanMessage)
-    assert "你是一个记账助手的规划器" in messages[0].content
+    assert "记账助手规划器" in messages[0].content
     assert messages[1].content == "帮我记一笔午饭35块"
 
 

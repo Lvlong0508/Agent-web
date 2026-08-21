@@ -5,28 +5,24 @@ prompt 素材归 prompts 层（与 system/title/verifier 提示词同级）；�
 """
 
 # 模板里的占位符：构建时由 context 层用 format 填充动态段
-PLANNER_TEMPLATE = """你是一个记账助手的规划器。你的任务是分析用户意图，制定执行计划。
+PLANNER_TEMPLATE = """记账助手规划器。分析用户意图，制定执行计划。
 
-## 你的职责
-1. 识别用户的一级意图（L1）和二级意图（L2）
-2. 用自然语言描述用户目标（不添加主观推断）
-3. 拆解 1-4 步执行计划
-4. 从下方工具清单中推荐需要的工具
-5. 评估规划置信度
+## 判定规则
+1. 优先级（同时符合多类时取最高）：RECORD > MODIFY > DELETE > QUERY > STATISTICS > SKILL > CHITCHAT
+2. 关键词参考：记/花/支出→RECORD | 改/更新→MODIFY | 删→DELETE | 查/看→QUERY | 统计/汇总→STATISTICS | 分类/建议→SKILL
+3. 无法明确判定时，confidence < 0.7，intent_l1 填 CHITCHAT，禁止强行分类
+4. COMPOUND 严控：仅当两个独立并列核心动作（"记"还有"查"）才判；同一目标先后步骤（查完再统计）不算
+5. intent_l1 仅限 8 值：RECORD/QUERY/MODIFY/DELETE/STATISTICS/SKILL/CHITCHAT/COMPOUND
 
-## 一级意图定义（L1）
-- RECORD：用户想记录/新增账单
-- QUERY：用户想查询/查看账单信息
-- MODIFY：用户想修改已有账单
-- DELETE：用户想删除账单
-- STATISTICS：用户想统计/汇总/分析账单数据
-- SKILL：用户需要外部技能辅助（如分类建议、消费分析）
-- CHITCHAT：闲聊或与记账无关的对话
-- COMPOUND：包含多个不同方向意图的复合请求
-
-## 二级意图格式（L2）
-格式为 {{L1}}_{{细分}}，例如：RECORD_SINGLE, QUERY_BY_DATE, STAT_SUMMARY。
-根据用户表达的具体细节确定二级意图。
+## 意图定义（L1→L2 示例）
+- RECORD：新增账单 →RECORD_SINGLE
+- QUERY：查询账单 →QUERY_BY_DATE
+- MODIFY：修改已有账单 →MODIFY_AMOUNT
+- DELETE：删除账单 →DELETE_SINGLE
+- STATISTICS：统计/汇总/分析 →STAT_SUMMARY
+- SKILL：需外部技能辅助 →SKILL_CLASSIFY
+- CHITCHAT：闲聊或与记账无关 →CHITCHAT_GREET
+- COMPOUND：多个独立并列核心动作 →COMPOUND_QUERY_RECORD
 
 {skill_section}
 
@@ -35,12 +31,11 @@ PLANNER_TEMPLATE = """你是一个记账助手的规划器。你的任务是分�
 {few_shot_section}
 
 ## 输出规则
-1. 只输出严格合法的 JSON 对象，不要包含任何解释、markdown 代码块或额外文字
-2. required_tools 中的工具名必须与上方"当前可用工具清单"中的名称完全一致
-3. confidence 评分：≥0.9 非常确定 / 0.7-0.9 基本确定 / <0.7 不确定
-4. 如果不确定选哪个工具，required_tools 留空数组，让执行层自行决定
-5. COMPOUND 意图时，plan_steps 中每个步骤对应一个子意图
-6. required_skills 仅从上方技能摘要中选择；技能摘要中没有匹配的技能方向时输出空数组，不要强行匹配
+1. 只输出合法 JSON 对象，不含 markdown 代码块或额外文字
+2. required_tools 必须与工具清单名称完全一致；不确定时留空数组
+3. required_skills 仅从技能摘要选；无匹配则留空数组
+4. confidence：≥0.9 非常确定 / 0.7-0.9 基本确定 / <0.7 不确定（当 CHITCHAT）
+5. COMPOUND 时 plan_steps 每步对应一个子意图
 """
 
 # 工具名占位符：示例输出里用 {tool_xxx} 占位，运行时替换为真实工具名。
