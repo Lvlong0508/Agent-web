@@ -87,6 +87,22 @@ class TraceCollector:
             "calls": [],
         })
 
+    def attach_calls(self, calls_by_node: dict[str, list[dict]]) -> None:
+        """把 callback 记录的 Call 挂到同名节点 Step；无对应 Step 的节点记录丢弃。"""
+        try:
+            by_node = {s["node_name"]: s for s in self.raw_steps}
+            for node_name, calls in (calls_by_node or {}).items():
+                step = by_node.get(node_name)
+                if step is None:
+                    continue
+                step["calls"].extend(calls)
+                # 汇总该节点 token 到 metrics，列表页无需展开 calls 即可看成本
+                in_tok = sum(c.get("input_tokens", 0) for c in calls if c.get("call_type") == "llm")
+                out_tok = sum(c.get("output_tokens", 0) for c in calls if c.get("call_type") == "llm")
+                step["metrics"] = {"input_tokens": in_tok, "output_tokens": out_tok}
+        except Exception:
+            pass
+
     @staticmethod
     def _guard_input(state: Any) -> dict:
         """输入存储策略：只保留 messages 与状态字段名，不存完整 state 快照。

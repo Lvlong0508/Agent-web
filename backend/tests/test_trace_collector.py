@@ -71,3 +71,26 @@ def test_input_messages_over_50_keeps_recent():
     assert step["input"]["truncated"] is True
     assert len(step["input"]["messages"]) == 50
     assert step["input"]["messages"][-1]["content"] == "m59"
+
+
+def test_attach_calls_to_step():
+    """callback 记录的 Call 挂到同名节点 Step"""
+    c = TraceCollector("t1")
+    c.process_debug_event(_task("agent"))
+    c.process_debug_event(_task_result("agent", "2026-08-22T00:00:00.200Z"))
+    c.attach_calls({"agent": [{"call_id": "call_001", "call_type": "llm",
+                               "model": "qwen-max", "input_tokens": 10, "output_tokens": 5}]})
+    assert len(c.raw_steps[0]["calls"]) == 1
+    assert c.raw_steps[0]["calls"][0]["model"] == "qwen-max"
+
+
+def test_attach_calls_sets_metrics():
+    """挂载 Call 后 Step.metrics 汇总 token 数（供管理员快速看成本）"""
+    c = TraceCollector("t1")
+    c.process_debug_event(_task("agent"))
+    c.process_debug_event(_task_result("agent", "2026-08-22T00:00:00.200Z"))
+    c.attach_calls({"agent": [{"call_type": "llm", "input_tokens": 10, "output_tokens": 5},
+                              {"call_type": "llm", "input_tokens": 3, "output_tokens": 2}]})
+    step = c.raw_steps[0]
+    assert step["metrics"]["input_tokens"] == 13
+    assert step["metrics"]["output_tokens"] == 7
