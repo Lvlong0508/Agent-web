@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.models.agent_run import AgentRun
 
@@ -25,9 +25,24 @@ class AgentRunResponse(BaseModel):
     error: str | None
     trace_id: str
     created_at: datetime
-    messages: list[dict]  # 全链路消息（含 user/assistant/tool/input_verdict/verdict/planner）
+    messages: list[dict]  # 全链路消息（兼容字段，旧记录）
+    # === 三层结构（spec 2026-08-22）：运行级汇总 + 节点级步骤，向后兼容新增 ===
+    duration_ms: int = 0
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    verdict: str | None = None
+    retry_count: int = 0
+    steps: list[dict] = []  # TraceStep 的 dict 序列化（前端可渲染节点分组）
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("steps", mode="before")
+    @classmethod
+    def _steps_to_dict(cls, v):
+        """把 ODM 里的 TraceStep 对象列表转成 dict（API 层不暴露模型对象）"""
+        if v is None:
+            return []
+        return [s.model_dump() if hasattr(s, "model_dump") else s for s in v]
 
 
 class AgentRunListResponse(BaseModel):

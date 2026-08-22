@@ -38,6 +38,24 @@ def test_agent_run_response_maps_id_not__id():
     assert resp.created_at == now
 
 
+def test_agent_run_response_includes_steps():
+    """AgentRunResponse 应携带 steps 与运行级汇总字段（三层结构向后兼容）"""
+    from app.models.trace import TraceStep
+
+    run = AgentRun(
+        id="r1", conversation_id="c1", user_id="u1", model="ollama",
+        steps=[TraceStep(step_id="step_001", node_name="agent", step_type="agent")],
+        duration_ms=500, total_input_tokens=10,
+    )
+    resp = AgentRunResponse.model_validate(run)
+    assert resp.duration_ms == 500
+    assert resp.total_input_tokens == 10
+    assert resp.total_output_tokens == 0
+    assert resp.retry_count == 0
+    assert resp.steps[0]["node_name"] == "agent"
+    assert resp.messages == []  # 兼容字段保留
+
+
 def test_agent_run_list_response_aggregates():
     """分页响应：直接聚合 items/total/page/page_size/total_pages"""
     now = datetime.now(timezone.utc)
