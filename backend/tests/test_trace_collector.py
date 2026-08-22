@@ -49,3 +49,25 @@ def test_parallel_branch_nodes_kept():
     c.process_debug_event(_task_result("generate_title", "2026-08-22T00:00:00.200Z"))
     # 并行节点按 task_result 完成顺序记录（planner 先完成先入列）
     assert [s["node_name"] for s in c.raw_steps] == ["planner", "generate_title"]
+
+
+def test_input_message_truncation():
+    """单条消息超 8KB：content 截断且标 truncated 标记"""
+    from app.services.chat.trace_collector import _truncate_message
+    result = _truncate_message({"role": "user", "content": "x" * 9000})
+    assert result["truncated"] is True
+    assert len(result["content"]) < 9000              # 已被截断
+    assert result["content"].endswith("...[已截断]")  # 截断有痕
+    assert result["content"].startswith("x" * 8192)   # 保留前 limit 字节
+
+
+def test_input_messages_over_50_keeps_recent():
+    """messages 超 50 条：保留最近 50 条 + input.truncated=True"""
+    c = TraceCollector("t1")
+    msgs = [{"role": "user", "content": f"m{i}"} for i in range(60)]
+    c.process_debug_event(_task("agent", input_={"messages": msgs}))
+    c.process_debug_event(_task_result("agent", "2026-08-22T00:00:00.200Z"))
+    step = c.raw_steps[0]
+    assert step["input"]["truncated"] is True
+    assert len(step["input"]["messages"]) == 50
+    assert step["input"]["messages"][-1]["content"] == "m59"

@@ -22,6 +22,15 @@ def _parse_ts(ts: str | None) -> datetime | None:
         return None
 
 
+def _truncate_message(msg: dict, limit: int = MAX_MESSAGE_CHARS) -> dict:
+    """单条消息内容超限时截断并打标记（截断有痕，管理员可感知）"""
+    if not isinstance(msg, dict) or not isinstance(msg.get("content"), str):
+        return msg
+    if len(msg["content"]) <= limit:
+        return msg
+    return {**msg, "content": msg["content"][:limit] + "...[已截断]", "truncated": True}
+
+
 class TraceCollector:
     """消费 debug 流，按 task/task_result 配对组装原始 Step 记录（dict 形式）。
 
@@ -90,5 +99,7 @@ class TraceCollector:
         msgs = state.get("messages") or []
         truncated = len(msgs) > MAX_INPUT_MESSAGES
         kept = msgs[-MAX_INPUT_MESSAGES:] if truncated else msgs
+        # 逐条应用单消息截断（超长 content 截断并标记）
+        kept = [_truncate_message(m) for m in kept]
         return {"messages": kept, "truncated": truncated,
                 "state_keys": sorted(k for k in state.keys() if k != "messages")}
