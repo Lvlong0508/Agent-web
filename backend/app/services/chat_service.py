@@ -25,6 +25,7 @@ from app.services.agent import (
     build_agent_messages,
     get_relevant_skills_prompt,  # L0 技能索引：注入首轮 system prompt
 )
+from app.services.agent.trace_callback import TraceCallbackHandler
 # chat 流式会话子包：chat_stream 拆分出的可独立单测单元（spec 2026-08-17）
 from app.services.chat import (
     SSESerializer,
@@ -34,6 +35,7 @@ from app.services.chat import (
     VerdictHandler,
     PlannerHandler,
 )
+from app.services.chat.trace_collector import TraceCollector
 from app.services.agent import get_tools
 
 # 模块级日志器：chat_stream 运行异常时记录含 trace_id 的上下文，便于检索
@@ -113,14 +115,23 @@ class ChatService:
         status: str,
         messages: list[dict],
         trace_id: str,
+        collector=None,
+        callback=None,
+        entry: dict | None = None,
         error: str | None = None,
     ) -> None:
         """落库一条全链路运行记录；落库自身失败时静默跳过（不能干扰主流程）
 
         trace_id：请求级追踪 ID（必填），管理员凭它把错误链与 emit 事件串联起来（规格 7.1）。
-        全部调用点均显式传入，故不设默认值，防止未来调用方漏传
+        collector/callback：三层记录来源（TraceCollector 的 raw_steps + entry Step、
+        TraceCallbackHandler 的 Call 记录）。落库前把 Call 归并到对应节点 Step。
+        全部调用点均显式传入 trace_id，故不设默认值，防止未来调用方漏传
         """
         try:
+            raw_steps = collector.raw_steps if collector else None
+            if raw_steps and callback is not None:
+                # 把 callback 采集的 Call 记录归并到对应节点 Step（含 metrics 汇总）
+                collector.attach_calls(callback.calls_by_node)
             # 委托 AgentRunService 落库：字段语义收敛到 service 层，这里只传业务数据
             await self.agent_run_service.create(
                 conversation_id=conv_id,
@@ -129,6 +140,8 @@ class ChatService:
                 status=status,
                 error=error,
                 messages=messages,
+                raw_steps=raw_steps,
+                entry=entry,
                 trace_id=trace_id,
             )
         except Exception:
@@ -185,10 +198,18 @@ class ChatService:
 
         # 4. 会话状态与事件订阅（替代原闭包 + nonlocal）
         trace_id = uuid.uuid4().hex  # 请求级追踪 ID：注入 config 透传给 emit 与落库
-        # 全链路收集：先放入本次用户请求，运行过程中从 updates 流逐节点追加。
+        # 全链路采集（spec 2026-08-22）：debug 流 → TraceCollector 产原始 Step，
+        # callback → TraceCallbackHandler 产 Call 记录；entry Step 记录首轮上下文
+        # （系统提示词+历史+本轮用户），补齐此前只记 user 的缺口
+        collector = TraceCollector(trace_id)
+        callback = TraceCallbackHandler()
+        entry = collector.build_entry(langchain_messages)
         # 用户端 messages 集合保存精简视图（user/assistant），agent_runs
-        # 保存完整回放（含工具调用参数与结果），两者各自独立落库
-        session = StreamSession(trace_messages=[{"role": "user", "content": content}])
+        # 保存三层结构（steps），两者各自独立落库
+        session = StreamSession(
+            trace_collector=collector,
+            trace_messages=[{"role": "user", "content": content}],
+        )
         # SSE 事件先入领域事件队列，再由编排器逐个序列化 yield，保证推送时机受控
         serializer = SSESerializer()
         # 事件路由：按请求实例化（严禁全局单例），订阅业务事件。
@@ -215,7 +236,7 @@ class ChatService:
         try:
             # 5. 运行 agent 图：三流并行消费（规格 5.4）委托编排器完成
             #    - "messages"：逐块产出 LLM token（打字机效果来源）
-            #    - "updates"：每节点 State 增量，仅用于全链路 trace 落库
+            #    - "debug"：每节点 task/task_result → TraceCollector 采集全链路 Step
             #    - "custom"：能力主动发出的事件，经 EventRouter 分发驱动业务行为
             async for sse_bytes in orchestrator.run(
                 {
@@ -233,7 +254,10 @@ class ChatService:
                     # 避免质检员只看本轮而误判基于记忆的回复
                     "history_reference": langchain_messages[1:],
                 },
-                config={"configurable": {"trace_id": trace_id, "thread_id": conv_id}},
+                config={
+                    "configurable": {"trace_id": trace_id, "thread_id": conv_id},
+                    "callbacks": [callback],
+                },
             ):
                 yield sse_bytes
 
@@ -244,15 +268,16 @@ class ChatService:
             await self.msg_repo.create(assistant_msg)
 
             # 全链路落库（status=ok），携带 trace_id 供管理员串联错误链
-            await self._save_run(conv_id, user_id, model, "ok", session.trace_messages, trace_id=trace_id)
+            await self._save_run(conv_id, user_id, model, "ok", [], trace_id=trace_id,
+                                 collector=collector, callback=callback, entry=entry)
             session.run_recorded = True
         except Exception as e:
             # 运行异常：已收集到的消息序列仍落库并标记 error，便于开发者排查。
             # 注意此时用户消息已保存（在 try 之前），assistant 消息不保存
             # （没有最终回复），符合预期
             await self._save_run(
-                conv_id, user_id, model, "error", session.trace_messages,
-                error=str(e), trace_id=trace_id,
+                conv_id, user_id, model, "error", [], trace_id=trace_id,
+                collector=collector, callback=callback, entry=entry, error=str(e),
             )
             session.run_recorded = True
             # 用户通道错误分轨：只下发友好文案，不泄漏任何内部细节；
@@ -267,8 +292,9 @@ class ChatService:
             # 落库失败由 _save_run 内部静默吞掉，不干扰生成器关闭流程
             if not session.run_recorded:
                 await self._save_run(
-                    conv_id, user_id, model, "error", session.trace_messages,
-                    error="流被中断（客户端断开或取消）", trace_id=trace_id,
+                    conv_id, user_id, model, "error", [], trace_id=trace_id,
+                    collector=collector, callback=callback, entry=entry,
+                    error="流被中断（客户端断开或取消）",
                 )
 
         # 7. 发送结束标志

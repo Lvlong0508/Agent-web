@@ -7,7 +7,6 @@
 
 from dataclasses import dataclass, field
 
-from app.services.agent.events import serialize_message
 from app.services.chat.reply_state import ReplyState
 from app.services.chat.sse_serializer import SSEEvent, SSESerializer
 
@@ -17,57 +16,21 @@ class StreamSession:
     """一次流式会话的全部可变状态（构造即初始化，替代闭包捕获的局部变量）。
 
     reply_state：回复状态机（待定回复/最终版/阶段，见 reply_state.py）
-    trace_messages：全链路 trace 记录（含本次用户首条）
+    trace_messages：全链路 trace 记录（含本次用户首条，兼容旧字段）
+    trace_collector：debug 流采集器（可选注入，缺省 None 时跳过 debug 收集）
     run_recorded：是否已成功落库（finally 兜底判断客户端中途断开）
     sse_events：待序列化的领域事件队列（handler 注入同一对象）
     """
 
     reply_state: ReplyState = field(default_factory=ReplyState)
     trace_messages: list = field(default_factory=list)
+    trace_collector: object = None
     run_recorded: bool = False
     sse_events: list[SSEEvent] = field(default_factory=list)
 
     def collect_token(self, token: str) -> None:
         """累积一个回复 token 到待定回复（验证通过前不推前端）"""
         self.reply_state.pending_reply += token
-
-    def collect_trace(self, updates: dict) -> None:
-        """从 updates 流收集节点产出到全链路 trace（含工具调用、质检输入与判定）。
-
-        只收集、不解析业务字段：agent/tools 消息经 serialize_message 落库，
-        verifier 的 verdict_input / verdict 按原 role 标记追加。
-        """
-        for m in updates.get("agent", {}).get("messages", []):
-            self.trace_messages.append(serialize_message(m))
-        for m in updates.get("tools", {}).get("messages", []):
-            self.trace_messages.append(serialize_message(m))
-        # planner 节点产出的规划消息（SystemMessage, name=planner）：全链路记录
-        # 应含规划参考，便于复盘意图识别与路线规划是否合理。落库时 role 标为
-        # "planner"（而非 system），让查记录时一眼区分规划消息与普通系统提示词
-        for m in updates.get("planner", {}).get("messages", []):
-            entry = serialize_message(m)
-            entry["role"] = "planner"
-            self.trace_messages.append(entry)
-        # planner 元信息（状态/原因/耗时）：超时等失败场景不注入规划消息（messages=[]），
-        # 全链路记录仍要能查"规划失败 + 耗时"，故按 planner_status 补充一条 role=planner 记录
-        planner_status = updates.get("planner", {}).get("planner_status")
-        if planner_status:
-            cost = updates.get("planner", {}).get("planner_cost_ms", 0)
-            reason = updates.get("planner", {}).get("planner_reason", "")
-            # 状态映射：planned→完成 / skipped→跳过 / failed→失败，未知原样显示
-            status_label = {"planned": "完成", "skipped": "跳过", "failed": "失败"}.get(
-                planner_status, planner_status
-            )
-            desc = f"规划{status_label}，耗时 {cost}ms"
-            if reason:
-                desc += f"（原因：{reason}）"
-            self.trace_messages.append({"role": "planner", "content": desc})
-        verifier_input = updates.get("verifier", {}).get("verdict_input")
-        if verifier_input is not None:
-            self.trace_messages.append({"role": "input_verdict", "content": verifier_input})
-        verifier_verdict = updates.get("verifier", {}).get("verdict")
-        if verifier_verdict is not None:
-            self.trace_messages.append({"role": "verdict", "content": verifier_verdict})
 
 
 class StreamOrchestrator:
@@ -95,12 +58,15 @@ class StreamOrchestrator:
         async for mode, data in self._graph.astream(
             graph_input,
             config=config,
-            stream_mode=["messages", "updates", "custom"],
+            stream_mode=["messages", "custom", "debug"],
         ):
             if mode == "messages":
                 self._handle_messages(data)
-            elif mode == "updates":
-                self._session.collect_trace(data)
+            elif mode == "debug":
+                # debug 流：每节点 task/task_result → TraceCollector 采集原始 Step
+                # 记录（零硬编码节点名，spec §5.1）；未注入采集器则跳过
+                if self._session.trace_collector is not None:
+                    self._session.trace_collector.process_debug_event(data)
             elif mode == "custom":
                 # 业务事件：经订阅 handler 产出领域事件到 session.sse_events，
                 # 再逐个取出序列化为 SSE 行 yield（保持原推送时机受控）

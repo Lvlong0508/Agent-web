@@ -111,7 +111,7 @@ async def test_agent_run_repo_delete_many():
 
 @pytest.mark.asyncio
 async def test_chat_stream_saves_full_trace_without_tools():
-    """无工具调用：run 记录含 user + assistant 最终回复，status=ok"""
+    """无工具调用：run 记录含 entry Step 与 agent Step，status=ok"""
     token = current_user_id.set("anonymous")
     try:
         conv = Conversation(_id="c1", user_id="anonymous")
@@ -128,9 +128,14 @@ async def test_chat_stream_saves_full_trace_without_tools():
         final_chunk.tool_call_chunks = None
 
         async def fake_astream(input, **kwargs):
-            # 先推一条 agent token（用户端），再推 agent 节点的完整输出（全链路）
+            # messages 流：agent token（用户端推送）
             yield ("messages", (final_chunk, {"langgraph_node": "agent"}))
-            yield ("updates", {"agent": {"messages": [final_msg]}})
+            # debug 流：agent 节点的完整生命周期（输入 + 输出）
+            yield ("debug", {"type": "task", "step": 1, "timestamp": "2026-08-22T00:00:00.000Z",
+                             "payload": {"id": "id-a", "name": "agent", "input": {"messages": []}}})
+            yield ("debug", {"type": "task_result", "step": 1, "timestamp": "2026-08-22T00:00:00.500Z",
+                             "payload": {"id": "id-a", "name": "agent",
+                                         "result": {"messages": [final_msg]}, "error": None}})
 
         service.graph = MagicMock()
         service.graph.astream = fake_astream
@@ -143,9 +148,12 @@ async def test_chat_stream_saves_full_trace_without_tools():
         assert run["status"] == "ok"
         assert run["conversation_id"] == "c1"
         assert run["model"] == agent_settings.MODEL_OLLAMA
-        assert [m["role"] for m in run["messages"]] == ["user", "assistant"]
-        assert run["messages"][0] == {"role": "user", "content": "你好"}
-        assert run["messages"][1]["content"] == "你好，很高兴认识你"
+        # 三层结构：entry 首条 + agent Step（debug 流采集，输出为最终回复）
+        assert run["entry"]["step_type"] == "entry"
+        assert [s["node_name"] for s in run["raw_steps"]] == ["agent"]
+        agent_step = run["raw_steps"][0]
+        assert agent_step["duration_ms"] == 500
+        assert agent_step["output"]["messages"][0]["content"] == "你好，很高兴认识你"
     finally:
         current_user_id.reset(token)
 
@@ -181,10 +189,22 @@ async def test_chat_stream_saves_full_trace_with_tools():
         final_msg = AIMessage(content="你共有 0 条账单")
 
         async def fake_astream(input, **kwargs):
-            # updates 流按执行顺序产出三个节点的完整输出
-            yield ("updates", {"agent": {"messages": [tool_call_msg]}})
-            yield ("updates", {"tools": {"messages": [tool_result_msg]}})
-            yield ("updates", {"agent": {"messages": [final_msg]}})
+            # debug 流按执行顺序产出三个节点的完整生命周期（输入 + 输出）
+            yield ("debug", {"type": "task", "step": 1, "timestamp": "2026-08-22T00:00:00.000Z",
+                             "payload": {"id": "id-a", "name": "agent", "input": {"messages": []}}})
+            yield ("debug", {"type": "task_result", "step": 1, "timestamp": "2026-08-22T00:00:00.100Z",
+                             "payload": {"id": "id-a", "name": "agent",
+                                         "result": {"messages": [tool_call_msg]}, "error": None}})
+            yield ("debug", {"type": "task", "step": 2, "timestamp": "2026-08-22T00:00:00.100Z",
+                             "payload": {"id": "id-b", "name": "tools", "input": {"messages": []}}})
+            yield ("debug", {"type": "task_result", "step": 2, "timestamp": "2026-08-22T00:00:00.200Z",
+                             "payload": {"id": "id-b", "name": "tools",
+                                         "result": {"messages": [tool_result_msg]}, "error": None}})
+            yield ("debug", {"type": "task", "step": 3, "timestamp": "2026-08-22T00:00:00.200Z",
+                             "payload": {"id": "id-c", "name": "agent", "input": {"messages": []}}})
+            yield ("debug", {"type": "task_result", "step": 3, "timestamp": "2026-08-22T00:00:00.300Z",
+                             "payload": {"id": "id-c", "name": "agent",
+                                         "result": {"messages": [final_msg]}, "error": None}})
             # 最终回复轮没有工具调用，token 走 messages 流推给用户端
             final_chunk = MagicMock()
             final_chunk.content = "你共有 0 条账单"
@@ -198,16 +218,21 @@ async def test_chat_stream_saves_full_trace_with_tools():
             pass
 
         run = service.agent_run_service.create.await_args.kwargs
-        # 四类消息按时间顺序完整记录
-        assert [m["role"] for m in run["messages"]] == ["user", "assistant", "tool", "assistant"]
-        # 中间 assistant 消息携带工具调用参数
-        assert run["messages"][1]["tool_calls"][0]["name"] == "list_expenses"
-        assert run["messages"][1]["tool_calls"][0]["args"] == {"page": 1, "page_size": 5}
-        # 工具结果消息带工具名与返回内容
-        assert run["messages"][2]["name"] == "list_expenses"
-        assert "total" in run["messages"][2]["content"]
-        # 最终回复
-        assert run["messages"][3]["content"] == "你共有 0 条账单"
+        steps = run["raw_steps"]
+        # 三个节点按执行顺序完整记录（含工具调用链路）
+        assert [s["node_name"] for s in steps] == ["agent", "tools", "agent"]
+        # 第一个 agent Step：消息携带工具调用参数
+        agent1_out = steps[0]["output"]["messages"][0]
+        assert agent1_out["role"] == "assistant"
+        assert agent1_out["tool_calls"][0]["name"] == "list_expenses"
+        assert agent1_out["tool_calls"][0]["args"] == {"page": 1, "page_size": 5}
+        # tools Step：工具结果消息带工具名与返回内容
+        tools_out = steps[1]["output"]["messages"][0]
+        assert tools_out["role"] == "tool"
+        assert tools_out["name"] == "list_expenses"
+        assert "total" in tools_out["content"]
+        # 最终回复 Step
+        assert steps[2]["output"]["messages"][0]["content"] == "你共有 0 条账单"
     finally:
         current_user_id.reset(token)
 
@@ -226,8 +251,13 @@ async def test_chat_stream_records_error_run():
         service.msg_repo.create = AsyncMock(return_value=None)
 
         async def fake_astream(input, **kwargs):
-            # 先产出一条 agent 中间输出，然后模拟模型调用崩溃
-            yield ("updates", {"agent": {"messages": [AIMessage(content="正在查询...")]}})
+            # 先产出一条 agent 中间输出（debug 流），然后模拟模型调用崩溃
+            yield ("debug", {"type": "task", "step": 1, "timestamp": "2026-08-22T00:00:00.000Z",
+                             "payload": {"id": "id-a", "name": "agent", "input": {"messages": []}}})
+            yield ("debug", {"type": "task_result", "step": 1, "timestamp": "2026-08-22T00:00:00.100Z",
+                             "payload": {"id": "id-a", "name": "agent",
+                                         "result": {"messages": [AIMessage(content="正在查询...")]},
+                                         "error": None}})
             raise RuntimeError("模型调用超时")
 
         service.graph = MagicMock()
@@ -240,8 +270,8 @@ async def test_chat_stream_records_error_run():
         run = service.agent_run_service.create.await_args.kwargs
         assert run["status"] == "error"
         assert "模型调用超时" in run["error"]
-        # 已收集到的消息仍保留（用户消息 + 中途 agent 输出）
-        assert [m["role"] for m in run["messages"]] == ["user", "assistant"]
+        # 已收集到的节点记录仍保留（agent Step 已采集）
+        assert [s["node_name"] for s in run["raw_steps"]] == ["agent"]
         # 只落库一条 error 记录（finally 兜底不再补记），防止重复写入
         assert service.agent_run_service.create.call_count == 1
     finally:
@@ -274,7 +304,11 @@ async def test_chat_stream_records_interrupted_run():
             yield ("custom", {"type": "title.completed", "capability": "title",
                               "status": "completed", "payload": {"title": "标题"}})
             yield ("messages", (final_chunk, {"langgraph_node": "agent"}))
-            yield ("updates", {"agent": {"messages": [final_msg]}})
+            yield ("debug", {"type": "task", "step": 1, "timestamp": "2026-08-22T00:00:00.000Z",
+                             "payload": {"id": "id-a", "name": "agent", "input": {"messages": []}}})
+            yield ("debug", {"type": "task_result", "step": 1, "timestamp": "2026-08-22T00:00:00.100Z",
+                             "payload": {"id": "id-a", "name": "agent",
+                                         "result": {"messages": [final_msg]}, "error": None}})
 
         service.graph = MagicMock()
         service.graph.astream = fake_astream
@@ -287,7 +321,10 @@ async def test_chat_stream_records_interrupted_run():
         run = service.agent_run_service.create.await_args.kwargs
         assert run["status"] == "error"
         assert "流被中断" in run["error"]
-        assert run["messages"][0] == {"role": "user", "content": "你好"}
+        # 流中断时生成器在 custom 处被关闭，debug 事件尚未消费 → raw_steps 为空；
+        # 但 entry（首轮上下文）在运行前已生成，仍随 error 记录落库
+        assert run["raw_steps"] == []
+        assert run["entry"]["step_type"] == "entry"
     finally:
         current_user_id.reset(token)
 
@@ -340,15 +377,20 @@ async def test_chat_stream_records_verifier_verdict_in_trace():
 
         async def fake_astream(input, **kwargs):
             """verifier 节点产出 verdict（Verdict 字典）与 verdict_input（序列化输入）"""
-            yield ("updates", {"verifier": {
-                "verification_result": "pass",
-                "verdict": {"is_accurate": True, "issues": ""},
-                "verdict_input": [
-                    {"role": "system", "content": "质检提示词"},
-                    {"role": "human", "content": "我这个月花了多少钱？"},
-                    {"role": "ai", "content": "这个月花了 70 元"},
-                ],
-            }})
+            yield ("debug", {"type": "task", "step": 1, "timestamp": "2026-08-22T00:00:00.000Z",
+                             "payload": {"id": "id-v", "name": "verifier", "input": {"messages": []}}})
+            yield ("debug", {"type": "task_result", "step": 1, "timestamp": "2026-08-22T00:00:00.100Z",
+                             "payload": {"id": "id-v", "name": "verifier",
+                                         "result": {
+                                             "verification_result": "pass",
+                                             "verdict": {"is_accurate": True, "issues": ""},
+                                             "verdict_input": [
+                                                 {"role": "system", "content": "质检提示词"},
+                                                 {"role": "human", "content": "我这个月花了多少钱？"},
+                                                 {"role": "ai", "content": "这个月花了 70 元"},
+                                             ],
+                                         },
+                                         "error": None}})
 
         service.graph = MagicMock()
         service.graph.astream = fake_astream
@@ -357,16 +399,14 @@ async def test_chat_stream_records_verifier_verdict_in_trace():
             pass
 
         run = service.agent_run_service.create.await_args.kwargs
-        # 全链路应包含质检判定记录与发给质检员的输入记录
-        verdicts = [m for m in run["messages"] if m["role"] == "verdict"]
-        inputs = [m for m in run["messages"] if m["role"] == "input_verdict"]
-        assert len(verdicts) == 1
-        assert verdicts[0]["content"] == {"is_accurate": True, "issues": ""}
-        assert len(inputs) == 1
-        assert inputs[0]["content"][0]["role"] == "system"
-        assert inputs[0]["content"][1]["content"] == "我这个月花了多少钱？"
-        # 时间线一致：先记录发给质检员的输入（input_verdict），再记录判定结果（verdict）
-        assert run["messages"].index(inputs[0]) < run["messages"].index(verdicts[0])
+        # 三层结构：verifier Step 的 output 含质检判定与发给质检员的输入记录
+        verifier_steps = [s for s in run["raw_steps"] if s["node_name"] == "verifier"]
+        assert len(verifier_steps) == 1
+        out = verifier_steps[0]["output"]
+        assert out["verdict"] == {"is_accurate": True, "issues": ""}
+        assert out["verification_result"] == "pass"
+        assert out["verdict_input"][0]["role"] == "system"
+        assert out["verdict_input"][1]["content"] == "我这个月花了多少钱？"
     finally:
         current_user_id.reset(token)
 

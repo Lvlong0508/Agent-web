@@ -72,6 +72,7 @@ class TraceCollector:
             duration = int((end - pending["start_time"]).total_seconds() * 1000)
         self._seq += 1
         error = payload.get("error")
+        output = self._serialize_output_messages(payload.get("result") or {})
         self.raw_steps.append({
             "step_id": f"step_{self._seq:03d}",
             "node_name": pending["node_name"],
@@ -81,11 +82,65 @@ class TraceCollector:
             "end_time": end,
             "duration_ms": duration,
             "input": pending["input"],
-            "output": payload.get("result") or {},
+            "output": output,
             "error_info": {"type": type(error).__name__, "message": str(error)} if error else None,
             "truncated": pending["input"].get("truncated", False),
             "calls": [],
         })
+
+    @staticmethod
+    def _serialize_output_messages(output: dict) -> dict:
+        """把节点产出的 messages（LangChain 消息对象或 dict）序列化为可落库 dict。
+
+        debug 流 task_result.result.messages 是真实 LangChain 消息对象，
+        MongoDB 无法持久化对象，须经 serialize_message 统一转换（spec §4.4）。
+        """
+        msgs = output.get("messages")
+        if not isinstance(msgs, list):
+            return output
+        from app.services.agent.events import serialize_message
+
+        serialized = []
+        for m in msgs:
+            if isinstance(m, dict):
+                serialized.append(m)
+            else:
+                try:
+                    serialized.append(serialize_message(m))
+                except Exception:
+                    # 兜底：未知类型消息至少保留类型与字符串内容，不阻塞采集
+                    serialized.append({"role": getattr(m, "type", "unknown"), "content": str(m)})
+        return {**output, "messages": serialized}
+
+    def build_entry(self, messages: list) -> dict | None:
+        """把首轮上下文（系统提示词+历史+本轮用户）序列化为 entry Step dict。
+
+        补齐此前只记 user 的缺口（spec §5.4）：管理员可看到 agent 收到的完整
+        首轮输入。异常时返回 None（entry 缺失不阻塞落库）。
+        """
+        try:
+            from datetime import datetime, timezone
+
+            from app.services.agent.events import serialize_message
+
+            msgs = [_truncate_message(m) for m in (serialize_message(x) for x in (messages or []))]
+            now = datetime.now(timezone.utc)
+            return {
+                "step_id": "step_000",
+                "node_name": "entry",
+                "step_type": "entry",
+                "status": "success",
+                "start_time": now,
+                "end_time": now,
+                "duration_ms": 0,
+                "input": {"messages": msgs},
+                "output": {},
+                "error_info": None,
+                "truncated": any(m.get("truncated") for m in msgs),
+                "calls": [],
+            }
+        except Exception:
+            return None
 
     def attach_calls(self, calls_by_node: dict[str, list[dict]]) -> None:
         """把 callback 记录的 Call 挂到同名节点 Step；无对应 Step 的节点记录丢弃。"""

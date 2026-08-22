@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import MagicMock
 
-from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage
 
 from app.services.chat.reply_state import ReplyPhase
 from app.services.chat.sse_serializer import SSESerializer
@@ -26,96 +26,6 @@ def test_collect_token_accumulates_pending_reply():
     session.collect_token("好")
     assert session.reply_state.pending_reply == "你好"
     assert session.reply_state.phase == ReplyPhase.PENDING
-
-
-def test_collect_trace_agent_and_tools():
-    """updates 流收集：agent 与 tools 节点消息都进 trace（含工具调用参数）"""
-    session = StreamSession()
-    updates = {
-        "agent": {"messages": [AIMessage(
-            content="让我查一下",
-            tool_calls=[{"name": "list_expenses", "args": {"page": 1}, "id": "call_1", "type": "tool_call"}],
-        )]},
-        "tools": {"messages": [ToolMessage(content='{"total": 6}', tool_call_id="call_1", name="list_expenses")]},
-    }
-    session.collect_trace(updates)
-    assert session.trace_messages[0]["role"] == "assistant"
-    assert session.trace_messages[0]["tool_calls"][0]["name"] == "list_expenses"
-    assert session.trace_messages[1]["role"] == "tool"
-    assert session.trace_messages[1]["tool_call_id"] == "call_1"
-
-
-def test_collect_trace_verifier():
-    """updates 流收集：质检输入与判定都进 trace（含 role=input_verdict / verdict）"""
-    session = StreamSession()
-    updates = {
-        "verifier": {
-            "verdict_input": [{"role": "user", "content": "hello"}],
-            "verdict": {"result": "pass", "reason": "OK"},
-        }
-    }
-    session.collect_trace(updates)
-    assert session.trace_messages[0] == {"role": "input_verdict", "content": [{"role": "user", "content": "hello"}]}
-    assert session.trace_messages[1] == {"role": "verdict", "content": {"result": "pass", "reason": "OK"}}
-
-
-def test_collect_trace_planner():
-    """updates 流收集：planner 节点产出的规划消息进 trace，role 标为 planner（直观区分）"""
-    session = StreamSession()
-    updates = {
-        "planner": {
-            "messages": [SystemMessage(content="【执行规划参考】...", name="planner")],
-        }
-    }
-    session.collect_trace(updates)
-    # 规划消息独立角色 planner，不再与 system 提示词混在一起，方便查记录一眼定位
-    assert session.trace_messages[0]["role"] == "planner"
-    assert session.trace_messages[0]["content"] == "【执行规划参考】..."
-
-
-def test_collect_trace_planner_meta():
-    """updates 流收集：planner 状态/原因/耗时追加为 role=planner 元信息记录。
-
-    超时/失败时 planner 不注入规划消息（messages=[]），全链路记录仍要能查
-    到"规划失败 + 耗时"，故按 planner_status 补充一条元信息记录"""
-    session = StreamSession()
-    updates = {
-        "planner": {
-            "messages": [],
-            "planner_status": "failed",
-            "planner_reason": "timeout",
-            "planner_cost_ms": 60000,
-        }
-    }
-    session.collect_trace(updates)
-    assert len(session.trace_messages) == 1
-    assert session.trace_messages[0]["role"] == "planner"
-    assert "失败" in session.trace_messages[0]["content"]
-    assert "60000" in session.trace_messages[0]["content"]
-
-
-def test_collect_trace_planner_success_meta():
-    """成功路径：既有规划消息 + 元信息记录两条都保留（元信息含耗时）"""
-    session = StreamSession()
-    updates = {
-        "planner": {
-            "messages": [SystemMessage(content="【执行规划参考】...", name="planner")],
-            "planner_status": "planned",
-            "planner_reason": "",
-            "planner_cost_ms": 320,
-        }
-    }
-    session.collect_trace(updates)
-    assert session.trace_messages[0]["role"] == "planner"   # 规划消息
-    assert session.trace_messages[1]["role"] == "planner"   # 元信息
-    assert "320" in session.trace_messages[1]["content"]
-
-
-def test_collect_trace_ignores_missing_sections():
-    """updates 流缺省节点段（无 agent/tools/verifier）时不应抛错"""
-    session = StreamSession()
-    session.collect_trace({"some_node": {"messages": []}})
-    assert session.trace_messages == []
 
 
 def _make_orchestrator():
