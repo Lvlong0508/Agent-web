@@ -28,3 +28,69 @@ export function getRoleConfig(role: string): RoleConfig {
     summaryStyle: 'first-line',
   }
 }
+
+// === 三层结构展示配置（spec 2026-08-22）：step_type / call_type / status 的中文名·图标·配色 ===
+
+export interface StepConfig {
+  label: string
+  icon: string
+  color: string
+  textColor: string
+}
+
+// 节点类型配置：与 ROLE_MAP 同一套 Apple 低饱和度配色体系
+export const STEP_MAP: Record<string, StepConfig> = {
+  entry: { label: '入口', icon: '🚪', color: '#F5F5F5', textColor: '#8E8E93' },
+  planner: { label: '规划', icon: '📋', color: '#FFF3E0', textColor: '#FF9500' },
+  agent: { label: '主代理', icon: '🤖', color: '#E8F5E9', textColor: '#34C759' },
+  tool: { label: '工具', icon: '🔧', color: '#E0F7FA', textColor: '#00BCD4' },
+  verifier: { label: '质检', icon: '✅', color: '#F3E5F5', textColor: '#AF52DE' },
+  title: { label: '标题', icon: '🏷', color: '#E3F2FD', textColor: '#2196F3' },
+}
+
+// 未知 step_type 兜底：显示原始类型名，通用灰
+export function getStepConfig(type: string): StepConfig {
+  return STEP_MAP[type] ?? {
+    label: type, icon: '💬', color: '#F5F5F5', textColor: '#8E8E93',
+  }
+}
+
+export interface CallConfig {
+  label: string
+  icon: string
+  color: string
+  textColor: string
+}
+
+// 调用类型配置：llm 模型调用 / tool 工具调用
+export const CALL_MAP: Record<string, CallConfig> = {
+  llm: { label: '模型', icon: '🧠', color: '#E8F0FE', textColor: '#007AFF' },
+  tool: { label: '工具', icon: '🔧', color: '#E0F7FA', textColor: '#00BCD4' },
+}
+
+// 未知 call_type 兜底
+export function getCallConfig(type: string): CallConfig {
+  return CALL_MAP[type] ?? {
+    label: type, icon: '💬', color: '#F5F5F5', textColor: '#8E8E93',
+  }
+}
+
+export interface StatusConfig {
+  label: string
+  color: string
+  textColor: string
+}
+
+// 步骤状态配色：success 绿 / error 红 / degraded 橙
+export const STATUS_MAP: Record<string, StatusConfig> = {
+  success: { label: '成功', color: '#E8F5E9', textColor: '#34C759' },
+  error: { label: '失败', color: '#FFEBEE', textColor: '#FF3B30' },
+  degraded: { label: '降级', color: '#FFF3E0', textColor: '#FF9500' },
+}
+
+// 未知 status 兜底
+export function getStatusConfig(status: string): StatusConfig {
+  return STATUS_MAP[status] ?? {
+    label: status, color: '#F5F5F5', textColor: '#8E8E93',
+  }
+}
