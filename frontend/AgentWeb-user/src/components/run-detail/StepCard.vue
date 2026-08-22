@@ -21,8 +21,10 @@
         </div>
         <div v-if="step.output" class="block">
           <div class="block-title">输出</div>
-          <!-- 多态渲染：output 是 dict 走 JsonViewer；含 messages 数组时走嵌套列表分支 -->
-          <ContentRenderer :content="step.output" :role="step.step_type" />
+          <!-- 多态渲染：planner 的 output.messages 是数组时走 NestedMessageList 逐条可读；
+               其余节点 output 无 messages 数组时回退 ContentRenderer 渲染整个对象 -->
+          <NestedMessageList v-if="outputMessages" :messages="outputMessages" />
+          <ContentRenderer v-else :content="step.output" :role="step.step_type" />
         </div>
         <div v-if="step.metrics" class="block">
           <div class="block-title">指标</div>
@@ -41,12 +43,13 @@
 
 <script setup lang="ts">
 import { computed, inject } from 'vue'
-import type { TraceStep } from '@/types/run'
+import type { TraceStep, NestedMessage } from '@/types/run'
 import { getStepConfig, getStatusConfig } from './constants'
 import { formatDuration } from '@/utils/format'
 import ContentRenderer from './ContentRenderer.vue'
 import JsonViewer from './JsonViewer.vue'
 import CallItem from './CallItem.vue'
+import NestedMessageList from './NestedMessageList.vue'
 
 const props = defineProps<{
   step: TraceStep
@@ -70,6 +73,13 @@ const statusStyle = computed(() => ({
 }))
 
 const isExpanded = computed(() => expandedSet.has(props.index))
+
+// output.messages 是数组时单独用 NestedMessageList 渲染（planner 规划消息逐条可读）；
+// 其余节点 output 无 messages 数组时回退 ContentRenderer 多态渲染
+const outputMessages = computed(() => {
+  const m = props.step.output?.messages
+  return Array.isArray(m) ? (m as NestedMessage[]) : null
+})
 
 // 状态边框：error 红框 / degraded 橙框 / 其余默认灰框
 const statusClass = computed(() => ({

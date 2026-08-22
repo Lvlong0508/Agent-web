@@ -42,7 +42,7 @@ export interface AgentRun {
   duration_ms: number
   total_input_tokens: number
   total_output_tokens: number
-  verdict: string | null     // "pass" | "fail" | null
+  verdict: string | null     // "pass" | "retry" | "fail" | null
   retry_count: number
   steps: TraceStep[]
 }

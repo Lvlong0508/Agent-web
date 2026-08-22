@@ -112,9 +112,10 @@ function formatTime(iso) {
                 <span class="cell-ellipsis">{{ run.trace_id }}</span>
               </td>
               <td>{{ run.steps?.length ?? 0 }}</td>
-              <!-- 判定列：pass 绿 / fail 红 / 空值显示横线 -->
+              <!-- 判定列：pass 绿 / retry 橙 / fail 红 / 空值显示横线 -->
               <td>
                 <span v-if="run.verdict === 'pass'" class="verdict-pass">✓ 通过</span>
+                <span v-else-if="run.verdict === 'retry'" class="verdict-retry">↻ 重试</span>
                 <span v-else-if="run.verdict === 'fail'" class="verdict-fail">✗ 不通过</span>
                 <span v-else>—</span>
               </td>

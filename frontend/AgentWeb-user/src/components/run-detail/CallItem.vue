@@ -12,7 +12,7 @@
     <!-- tool 调用：工具名 + 调用 ID + 结果（JSON 自动结构化） -->
     <template v-else>
       <span class="call-tool mono">{{ call.tool_name || '—' }}</span>
-      <span v-if="call.tool_call_id" class="call-tool-id mono">{{ truncateId(call.tool_call_id) }}</span>
+      <span v-if="call.tool_call_id" class="call-tool-id mono" :title="call.tool_call_id">{{ truncateId(call.tool_call_id) }}</span>
       <span v-if="call.tool_result" class="call-result">
         <ContentRenderer :content="call.tool_result" role="tool" />
       </span>

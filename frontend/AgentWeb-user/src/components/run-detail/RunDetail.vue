@@ -3,6 +3,7 @@
     <!-- 运行记录元信息卡片 -->
     <div class="meta-card">
       <div class="meta-row">
+        <!-- 真实 status 取值是 ok（成功）/ error（失败） -->
         <span class="meta-label">状态</span>
         <span class="meta-value status" :class="run.status">
           {{ run.status === 'ok' ? '✓ 成功' : '✗ 失败' }}
@@ -22,7 +23,7 @@
       </div>
       <div class="meta-row">
         <span class="meta-label">Token</span>
-        <span class="meta-value">入 {{ run.total_input_tokens }} / 出 {{ run.total_output_tokens }}</span>
+        <span class="meta-value">入 {{ formatTokens(run.total_input_tokens) }} / 出 {{ formatTokens(run.total_output_tokens) }}</span>
       </div>
       <div class="meta-row">
         <span class="meta-label">时间</span>
@@ -74,7 +75,7 @@
 import { computed, provide, reactive, ref } from 'vue'
 import type { AgentRun } from '@/types/run'
 import { getStepConfig } from './constants'
-import { formatDuration } from '@/utils/format'
+import { formatDuration, formatTokens } from '@/utils/format'
 import StepCard from './StepCard.vue'
 
 const props = defineProps<{
@@ -108,15 +109,18 @@ const stepStats = computed(() => {
   })
 })
 
-// 判定文案与配色：pass 绿 ✓ / fail 红 ✗ / 无判定灰色 —
+// 判定文案与配色：pass 绿 ✓ / retry 橙 ↻ / fail 红 ✗ / 无判定灰色 —
 const verdictText = computed(() => {
   if (props.run.verdict === 'pass') return '✓ 通过'
+  if (props.run.verdict === 'retry') return '↻ 重试'
   if (props.run.verdict === 'fail') return '✗ 不通过'
   return '—'
 })
 const verdictClass = computed(() => ({
   'verdict-pass': props.run.verdict === 'pass',
+  'verdict-retry': props.run.verdict === 'retry',
   'verdict-fail': props.run.verdict === 'fail',
+  'verdict-none': !props.run.verdict,
 }))
 
 // 时间格式化：只显示月/日/时分秒（本地时区）
@@ -157,7 +161,9 @@ function formatTime(iso: string) {
 .meta-value.status.error { color: #FF3B30; }
 .meta-value.error { color: #FF3B30; }
 .verdict-pass { color: #34C759; }
+.verdict-retry { color: #FF9500; }
 .verdict-fail { color: #FF3B30; }
+.verdict-none { color: #8E8E93; }
 
 .stats-bar {
   display: flex;
