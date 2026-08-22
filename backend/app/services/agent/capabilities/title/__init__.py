@@ -48,7 +48,9 @@ class TitleCapability(AgentCapability):
                 if title:
                     await self._conv_repo.update_title(state["conv_id"], title)
             except Exception:
-                # 标题生成失败不能阻断主聊天流程：静默跳过，回复仍照常产出
+                # 标题生成失败不能阻断主聊天流程：静默跳过，回复仍照常产出。
+                # 仍返回 generated_title="" 写回状态，让 debug 流的 title Step 能
+                # 呈现该节点执行过（降级过程对全链路记录可见，spec §5.3）
                 pass
             # 发出标题事件：chat_service 经 EventRouter 订阅后推送前端侧边栏。
             # 标题为空（未生成/已存在）也发事件，由订阅端自行判断是否推送
