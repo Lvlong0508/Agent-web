@@ -3,6 +3,7 @@
 
 import pytest
 
+from app.config import agent_settings
 from app.services.agent.skills import get_skills_index_prompt
 from app.services.agent.skills.loader import SkillLoader
 from app.services.agent.skills.tool import build_skill_tools
@@ -212,8 +213,7 @@ async def test_get_relevant_skills_prompt_merges_always_inject(monkeypatch, tmp_
             )]
 
     monkeypatch.setattr("app.services.agent.skills._get_skill_service", lambda: FakeService())
-    monkeypatch.setattr("app.config.agent_settings.agent_settings.SKILL_ALWAYS_INJECT",
-                        ["resident"])
+    monkeypatch.setattr(agent_settings, "SKILL_ALWAYS_INJECT", ["resident"])
 
     prompt = await skills_pkg.get_relevant_skills_prompt("记账")
     assert "**accounting-expert**" in prompt
@@ -255,7 +255,7 @@ async def test_get_relevant_skills_prompt_empty_on_no_match(monkeypatch, tmp_pat
             return []  # 无命中
 
     monkeypatch.setattr("app.services.agent.skills._get_skill_service", lambda: EmptyService())
-    monkeypatch.setattr("app.config.agent_settings.agent_settings.SKILL_ALWAYS_INJECT", [])
+    monkeypatch.setattr(agent_settings, "SKILL_ALWAYS_INJECT", [])
 
     prompt = await skills_pkg.get_relevant_skills_prompt("随便聊聊")
     assert prompt == ""

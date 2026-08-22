@@ -14,7 +14,7 @@ import time
 from langchain_core.messages import SystemMessage
 from pydantic import ValidationError
 
-from app.config.agent_settings import agent_settings
+from app.config import agent_settings
 from app.services.agent.capabilities.planner.events import (
     PLANNER_COMPLETED_EVENT,
     PLANNER_FAILED_EVENT,

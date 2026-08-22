@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.config.settings import settings
+from app.config import database_settings
 from app.models.conversation import Conversation
 
 
@@ -10,7 +10,7 @@ class ConversationRepo:
     """对话集合的数据访问层：处理 MongoDB conversations 文档的 CRUD"""
 
     # 集合名从配置读取（env 可覆盖），统一管理避免硬编码
-    COLLECTION = settings.MONGODB_COLLECTIONS["conversations"]
+    COLLECTION = database_settings.MONGODB_COLLECTIONS["conversations"]
 
     def __init__(self, db: AsyncIOMotorDatabase):
         self.collection = db[self.COLLECTION]

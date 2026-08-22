@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.config import audit_env
 from app.api.v1.chat import router as chat_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.agent_runs import router as agent_runs_router
@@ -34,6 +35,7 @@ _sync_task: asyncio.Task | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _sync_task
+    audit_env()               # 扫描 .env 中未被认领的键，配置拼写错误尽早暴露
     await MongoDB.connect()   # 初始化 MongoDB
     ChromaClient.connect()    # 初始化 Chroma 向量库（4 个 collection）
     # 自动建表：expenses 表不存在时创建（含索引），已存在则跳过

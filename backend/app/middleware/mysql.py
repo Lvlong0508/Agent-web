@@ -12,7 +12,7 @@ from urllib.parse import quote_plus
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
-from app.config.settings import settings
+from app.config import database_settings
 
 
 # SQLAlchemy 2.x 模型基类：所有 ORM 模型继承它定义表结构
@@ -26,8 +26,8 @@ class Base(DeclarativeBase):
 # pool_recycle=3600：连接超过 1 小时自动回收，避免被 MySQL 侧超时关闭
 engine = create_async_engine(
     (
-        f"mysql+asyncmy://{settings.MYSQL_USER}:{quote_plus(settings.MYSQL_PASSWORD)}"
-        f"@{settings.MYSQL_HOST}:{settings.MYSQL_PORT}/{quote_plus(settings.MYSQL_DB_NAME)}"
+        f"mysql+asyncmy://{database_settings.MYSQL_USER}:{quote_plus(database_settings.MYSQL_PASSWORD)}"
+        f"@{database_settings.MYSQL_HOST}:{database_settings.MYSQL_PORT}/{quote_plus(database_settings.MYSQL_DB_NAME)}"
         "?charset=utf8mb4"
     ),
     pool_pre_ping=True,

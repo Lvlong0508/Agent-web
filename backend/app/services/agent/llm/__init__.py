@@ -7,7 +7,7 @@ create_llm 是统一分发入口：按 alias 从模型注册表（AgentSettings.
 
 from langchain_openai import ChatOpenAI
 
-from app.config.agent_settings import agent_settings
+from app.config import agent_settings
 from app.services.agent.llm.dashscope import create_dashscope_llm
 from app.services.agent.llm.ollama import create_ollama_llm
 

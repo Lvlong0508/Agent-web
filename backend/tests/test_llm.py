@@ -4,8 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.config.agent_settings import agent_settings
-from app.config.settings import settings
+from app.config import agent_settings
 from app.services.agent.llm import create_llm
 
 
@@ -16,8 +15,8 @@ def test_create_llm_dashscope_alias():
     mock_cls.assert_called_once()
     kwargs = mock_cls.call_args.kwargs
     assert kwargs["model"] == "qwen3.7-flash"
-    assert kwargs["base_url"] == settings.DASHSCOPE_BASE_URL
-    assert kwargs["api_key"] == settings.DASHSCOPE_API_KEY
+    assert kwargs["base_url"] == agent_settings.DASHSCOPE_BASE_URL
+    assert kwargs["api_key"] == agent_settings.DASHSCOPE_API_KEY
     assert "extra_body" not in kwargs  # 思考开启时不传
 
 
@@ -27,7 +26,7 @@ def test_create_llm_ollama_alias():
         create_llm(alias="ollama-qwen3.5")
     mock_cls.assert_called_once()
     kwargs = mock_cls.call_args.kwargs
-    assert kwargs["base_url"] == settings.OLLAMA_BASE_URL + "/v1"
+    assert kwargs["base_url"] == agent_settings.OLLAMA_BASE_URL + "/v1"
     assert kwargs["model"] == "qwen3.5:9b"
     assert kwargs["api_key"] == "ollama"
 
@@ -63,4 +62,4 @@ def test_create_llm_default_falls_back_to_local():
         create_llm()
     mock_cls.assert_called_once()
     kwargs = mock_cls.call_args.kwargs
-    assert kwargs["base_url"] == settings.OLLAMA_BASE_URL + "/v1"
+    assert kwargs["base_url"] == agent_settings.OLLAMA_BASE_URL + "/v1"

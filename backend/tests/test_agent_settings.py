@@ -1,8 +1,9 @@
-"""AgentSettings 测试：planner 配置默认值 + 模型注册表 + SKILLS_DIR 迁移"""
+"""AgentSettings 测试：planner 配置默认值 + 模型注册表 + 大模型/向量模型配置"""
 
-from pathlib import Path
+import os
 
-from app.config.agent_settings import AgentSettings, agent_settings
+from app.config import AgentSettings, agent_settings
+from app.config import database_settings
 
 
 def test_planner_defaults():
@@ -49,26 +50,29 @@ def test_skills_dir_migrated_to_agent_settings():
     assert agent_settings.SKILLS_DIR == "skills"
 
 
-def test_base_dir_points_to_backend_root():
-    """agent_settings 的 BASE_DIR 同样指向 backend/ 根目录"""
-    assert agent_settings.BASE_DIR == Path(__file__).resolve().parents[1]
-    assert agent_settings.BASE_DIR.name == "backend"
+def test_llm_provider_config_defaults():
+    """LLM 厂商配置从原 settings 迁入：Ollama 本地地址 + DashScope 端点 + Key 默认空"""
+    assert agent_settings.OLLAMA_BASE_URL == "http://localhost:11434"
+    assert agent_settings.DASHSCOPE_BASE_URL == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    # Key 走系统环境变量（.env 不写），未设置则为空
+    assert agent_settings.DASHSCOPE_API_KEY == os.environ.get("DASHSCOPE_API_KEY", "")
 
 
 def test_chroma_collections_mapping():
-    """四类库 collection 映射：kb_type -> collection 名"""
+    """四类库 collection 映射已归 database_settings：kb_type -> collection 名"""
     expected = {
         "enterprise": "kb_enterprise",
         "user": "kb_user",
         "tool": "kb_tools",
         "skill": "kb_skills",
     }
-    assert agent_settings.CHROMA_COLLECTIONS == expected
+    assert database_settings.CHROMA_COLLECTIONS == expected
 
 
-def test_embedding_model_default():
-    """embedding 模型默认 text-embedding-v3"""
+def test_embedding_config_defaults():
+    """向量模型配置归 agent_settings：模型 text-embedding-v3，维度 1024"""
     assert agent_settings.EMBEDDING_MODEL == "text-embedding-v3"
+    assert agent_settings.EMBEDDING_DIM == 1024
 
 
 def test_skill_retrieval_config_defaults():

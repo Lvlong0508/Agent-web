@@ -7,8 +7,8 @@ from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END
 
-from app.config.agent_settings import agent_settings
-from app.config.settings import settings
+from app.config import agent_settings
+from app.config import settings
 from app.services.agent import (
     MAX_VERIFY_RETRIES,
     Verdict,

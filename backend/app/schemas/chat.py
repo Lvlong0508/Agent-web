@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.config.agent_settings import agent_settings
+from app.config import agent_settings
 
 
 # -------------------- 请求体 --------------------

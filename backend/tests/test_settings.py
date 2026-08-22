@@ -1,9 +1,12 @@
 # backend/tests/test_settings.py
-"""settings 配置测试：BASE_DIR 定位 backend 根目录、SKILLS_DIR 迁移归属"""
+"""settings 配置测试：BASE_DIR 定位 backend 根目录、应用级配置默认值。
+
+数据库配置在 test_database_settings.py，大模型配置在 test_agent_settings.py。
+"""
 
 from pathlib import Path
 
-from app.config.settings import settings
+from app.config import settings
 
 
 def test_base_dir_points_to_backend_root():
@@ -15,29 +18,14 @@ def test_base_dir_points_to_backend_root():
 
 
 def test_skills_dir_migrated_to_agent_settings():
-    """SKILLS_DIR 已迁移到 AgentSettings：agent 模块配置独立于基础设施配置"""
-    from app.config.agent_settings import agent_settings
+    """SKILLS_DIR 已迁移到 AgentSettings：agent 模块配置独立于应用级配置"""
+    from app.config import agent_settings
 
     assert agent_settings.SKILLS_DIR == "skills"
 
 
-def test_chroma_config_defaults():
-    """Chroma 基础设施配置默认值：localhost:8000，embedding 维度 1024，
-    tenant 保持 default_tenant，database 用项目名与其他项目隔离"""
-    assert settings.CHROMA_HOST == "localhost"
-    assert settings.CHROMA_PORT == 8000
-    assert settings.EMBEDDING_DIM == 1024
-    assert settings.CHROMA_TENANT == "default_tenant"
-    assert settings.CHROMA_DATABASE == "agent-web"
-
-
-def test_data_name_mappings_defaults():
-    """数据表/集合名统一从配置读取（env 可 JSON 覆盖），不再散落硬编码"""
-    # MySQL 表名映射：逻辑名 expense -> 真实表 expenses
-    assert settings.MYSQL_TABLES == {"expense": "expenses"}
-    # MongoDB 集合名映射：逻辑名与真实集合名一致，env 可改 value
-    assert settings.MONGODB_COLLECTIONS == {
-        "agent_runs": "agent_runs",
-        "conversations": "conversations",
-        "messages": "messages",
-    }
+def test_app_level_config_defaults():
+    """应用级配置默认值：服务地址与单用户归属 ID"""
+    assert settings.backend_host == "localhost"
+    assert settings.backend_port == 8088
+    assert settings.DEFAULT_USER_ID == "anonymous"

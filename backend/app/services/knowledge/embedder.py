@@ -10,8 +10,7 @@ import asyncio
 
 from langchain_openai import OpenAIEmbeddings
 
-from app.config.agent_settings import agent_settings
-from app.config.settings import settings
+from app.config import agent_settings
 
 
 class DashScopeEmbedder:
@@ -26,9 +25,9 @@ class DashScopeEmbedder:
         # 未注入时构造真实客户端：复用 DashScope 兼容端点与 key，维度固定 1024
         self.embeddings = embeddings or OpenAIEmbeddings(
             model=agent_settings.EMBEDDING_MODEL,
-            base_url=settings.DASHSCOPE_BASE_URL,
-            api_key=settings.DASHSCOPE_API_KEY,
-            dimensions=settings.EMBEDDING_DIM,
+            base_url=agent_settings.DASHSCOPE_BASE_URL,
+            api_key=agent_settings.DASHSCOPE_API_KEY,
+            dimensions=agent_settings.EMBEDDING_DIM,
             # 非 OpenAI 官方服务：关掉 token 长度检查，按原文发送
             # （DashScope 兼容端点不认识 OpenAI 的 token 编码）
             check_embedding_ctx_length=False,

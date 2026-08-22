@@ -5,7 +5,7 @@ import json
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-from app.config.agent_settings import agent_settings
+from app.config import agent_settings
 from app.services.agent.capabilities.planner.node import make_planner_node
 
 

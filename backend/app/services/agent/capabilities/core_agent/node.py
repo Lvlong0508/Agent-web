@@ -5,7 +5,7 @@
 
 from typing import Literal
 
-from app.config.agent_settings import agent_settings
+from app.config import agent_settings
 from app.services.agent.llm import create_llm
 from app.services.agent.capabilities.core_agent.state import AgentState
 # 重写轮上下文助手属于 verifier 能力（重写指令由质检反馈驱动），故依赖

@@ -6,7 +6,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
 from app.auth import current_user_id
-from app.config.settings import settings
+from app.config import database_settings
+from app.config import settings
 from app.exceptions import NotFoundError
 from app.middleware.mysql import Base, SessionLocal, engine
 from app.models.expense import Expense, ExpenseCategory
@@ -160,7 +161,7 @@ async def test_indexes_created(service):
                 "SELECT DISTINCT index_name FROM information_schema.statistics "
                 "WHERE table_schema = :db AND table_name = 'expenses'"
             ),
-            {"db": settings.MYSQL_DB_NAME},
+            {"db": database_settings.MYSQL_DB_NAME},
         )
         indexes = {row[0] for row in result}
 

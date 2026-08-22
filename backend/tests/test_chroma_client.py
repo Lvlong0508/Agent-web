@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from app.config.settings import settings
+from app.config import database_settings
 from app.middleware.chroma import ChromaClient
 
 
@@ -47,8 +47,8 @@ def test_connect_creates_four_collections():
     for call in fake_client.get_or_create_collection.call_args_list:
         assert call.kwargs["metadata"] == {"hnsw:space": "cosine"}
     # HttpClient 必须用配置的 tenant/database
-    assert mock_http.call_args.kwargs["tenant"] == settings.CHROMA_TENANT
-    assert mock_http.call_args.kwargs["database"] == settings.CHROMA_DATABASE
+    assert mock_http.call_args.kwargs["tenant"] == database_settings.CHROMA_TENANT
+    assert mock_http.call_args.kwargs["database"] == database_settings.CHROMA_DATABASE
 
 
 def test_connect_creates_database_if_missing():

@@ -7,8 +7,8 @@ import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
 from app.auth import current_user_id
-from app.config.agent_settings import agent_settings
-from app.config.settings import settings
+from app.config import agent_settings
+from app.config import settings
 from app.models.agent_run import AgentRun
 from app.models.conversation import Conversation
 from app.repositories.agent_run_repo import AgentRunRepo

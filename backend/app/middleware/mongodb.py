@@ -1,6 +1,6 @@
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
-from app.config.settings import settings
+from app.config import database_settings
 
 
 class MongoDB:
@@ -12,8 +12,8 @@ class MongoDB:
     @classmethod
     async def connect(cls):
         """初始化 MongoDB 客户端并获取数据库引用"""
-        cls.client = AsyncIOMotorClient(settings.MONGODB_URI)
-        cls.db = cls.client[settings.MONGODB_DB_NAME]
+        cls.client = AsyncIOMotorClient(database_settings.MONGODB_URI)
+        cls.db = cls.client[database_settings.MONGODB_DB_NAME]
 
     @classmethod
     async def close(cls):

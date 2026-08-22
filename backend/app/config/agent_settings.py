@@ -1,8 +1,9 @@
-"""Agent 模块专用配置：模型注册表 + planner 规划节点 + skill 机制（agent 模块唯一配置源）。
+"""Agent 模块配置 + 大模型配置中心：模型注册表 + 厂商凭据 + 向量模型 + planner + skill。
 
 背景：原 settings.py 职责过重（MongoDB/MySQL/LLM/skills 混在一处），且模型分发
-硬编码在选择名白名单里，每加一个模型就要改代码。拆出本类后：
-- agent 模块自己的配置（模型注册表、规划参数、技能目录）只在此维护
+硬编码在选择名白名单里，每加一个模型就要改代码。拆分后：
+- 大模型相关配置（模型注册表、LLM 厂商端点/凭据、向量模型）统一在本类管理
+- 数据库相关配置在 database_settings.py，应用级配置在 settings.py
 - 模型注册表配置驱动：新增模型 = 改 models.yaml（或内置默认字典），工厂零改动
 """
 
@@ -17,7 +18,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class ModelConfig(BaseModel):
     """模型定义：一个注册条目 = 一份完整可构造的模型配置。
 
-    base_url/api_key 不放在模型层（YAGNI）：当前全部走 settings.py 的厂商凭据，
+    base_url/api_key 不放在模型层（YAGNI）：当前全部走本类的厂商凭据，
     未来出现多端点/多实例需求时再给 ModelConfig 扩展这两个字段。
     """
 
@@ -49,36 +50,31 @@ class AgentSettings(BaseSettings):
     MODEL_OLLAMA: ClassVar[str] = "ollama-qwen3.5"
     MODEL_DASHSCOPE_QWEN: ClassVar[str] = "qwen3.7-flash"
 
+    # ---- LLM 厂商配置（大模型统一配置中心，从原 settings.py 移入）----
+    OLLAMA_BASE_URL: str = "http://localhost:11434"  # Ollama 本地服务地址
+    DASHSCOPE_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    # API Key 从系统环境变量读取（不写项目 .env，避免敏感信息入库）；未设置则 dashscope 不可用
+    DASHSCOPE_API_KEY: str = ""
+
+    # ---- 向量模型（embedding）配置：与 LLM 同为模型配置，归本类管理 ----
+    EMBEDDING_MODEL: str = "text-embedding-v3"  # DashScope text-embedding-v3（升级版，质量优于 v2）
+    EMBEDDING_DIM: int = 1024                   # 向量维度：与模型配套，改动需同步重建 Chroma 集合
+
     # ---- planner 规划节点配置 ----
     PLANNER_MODEL_ALIAS: str = "planner"       # 用注册表里的哪个模型做规划
     PLANNER_THINKING: bool = True              # 思考模式：意图识别需推理，代价是更慢，故超时上调
     PLANNER_TIMEOUT: float = 60.0              # 规划超时（秒）。思考模式非流式要等全部思考完成（实测十几秒+），20s 不够实测触发降级，上调至 60s
     PLANNER_CONFIDENCE_THRESHOLD: float = 0.7  # 置信度阈值：低于此值标注低置信度
 
-    # ---- skill 机制（从原 settings 迁入）----
-    SKILLS_DIR: str = "skills"                 # 相对 BASE_DIR 或绝对路径
+    # ---- skill 机制 ----
+    SKILLS_DIR: str = "skills"                 # 相对 backend 根目录（settings.BASE_DIR）或绝对路径
 
     SKILL_RETRIEVE_TOP_K: int = 5
     SKILL_SIMILARITY_THRESHOLD: float = 0.5
     SKILL_ALWAYS_INJECT: list[str] = []
 
-    # ---- 知识库（向量检索）配置 ----
-    # kb_type -> collection 名映射：四类库各占一个 collection，可独立调参。
-    # 支持 env 以 JSON 覆盖（如 CHROMA_COLLECTIONS={"enterprise":"kb_enterprise",...}），
-    # 与其他基础设施命名（MySQL 表 / MongoDB 集合）统一在 env 管理。
-    CHROMA_COLLECTIONS: dict[str, str] = {
-        "enterprise": "kb_enterprise",  # 企业公共知识库（全体用户可查）
-        "user": "kb_user",              # 用户私有知识库（owner_id 隔离）
-        "tool": "kb_tools",             # AI 工具库（预留：按需装配 tool）
-        "skill": "kb_skills",           # skill 库（预留：按需装配 skill）
-    }
-    # embedding 模型名：DashScope text-embedding-v3（升级版，质量优于 v2）
-    EMBEDDING_MODEL: str = "text-embedding-v3"
-
-    BASE_DIR: ClassVar[Path] = Path(__file__).resolve().parents[2]  # backend/
-
-    # extra="ignore"：忽略 .env 中属于 settings.py 的基础设施变量（MONGODB_* 等），
-    # AgentSettings 只认领自己的字段；需要覆盖时用 AGENT_ 前缀的环境变量
+    # extra="ignore"：忽略 .env 中属于其他配置类的变量（MONGODB_*、CHROMA_* 等），
+    # AgentSettings 只认领自己的字段；需要覆盖时用对应字段的环境变量
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -90,7 +86,7 @@ class AgentSettings(BaseSettings):
         """加载配置：模型注册表优先读 models.yaml，缺省用内置默认（零配置可跑）。
 
         yaml_path：显式指定注册表文件（测试注入用）；None 时默认 backend/models.yaml。
-        yaml 只放非敏感模型定义；厂商凭据/base_url 仍在 settings.py（全局单一来源）。
+        yaml 只放非敏感模型定义；厂商凭据/base_url 仍在全局配置（本类厂商字段）。
         """
         if yaml_path is None:
             yaml_path = Path(__file__).resolve().parents[2] / "models.yaml"

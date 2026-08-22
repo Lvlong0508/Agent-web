@@ -9,7 +9,8 @@ from enum import Enum
 from sqlalchemy import BigInteger, Date, DateTime, Index, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.config.settings import settings
+from app.config import database_settings
+from app.config import settings
 from app.middleware.mysql import Base
 
 
@@ -29,7 +30,7 @@ class Expense(Base):
     """个人账单表：id 自增主键，所有查询都按 user_id 过滤"""
 
     # 表名从配置读取（env 可覆盖），与 MongoDB/Chroma 的集合名统一在配置管理
-    __tablename__ = settings.MYSQL_TABLES["expense"]
+    __tablename__ = database_settings.MYSQL_TABLES["expense"]
 
     # 三个查询索引都从 user_id 开头（最左前缀），保证按用户过滤的查询命中索引。
     # 注意：第三个索引 (user_id, amount) 是第二个 (user_id, amount, category)

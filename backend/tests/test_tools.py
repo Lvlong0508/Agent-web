@@ -10,8 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
 from app.auth import current_user_id
-from app.config.agent_settings import agent_settings
-from app.config.settings import settings
+from app.config import agent_settings
+from app.config import settings
 from app.middleware.mysql import Base, SessionLocal, engine
 from app.models.expense import Expense
 from app.services.agent import Verdict, build_agent_graph

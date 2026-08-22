@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.auth import current_user_id, get_current_user_id
-from app.config.settings import settings
+from app.config import settings
 from app.main import app
 
 

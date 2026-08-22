@@ -5,8 +5,8 @@ from langchain_core.messages import SystemMessage
 from pydantic import ValidationError
 
 from app.auth import current_user_id
-from app.config.agent_settings import agent_settings
-from app.config.settings import settings
+from app.config import agent_settings
+from app.config import settings
 from app.models.conversation import Conversation
 from app.schemas.chat import SendMessageRequest
 from app.services.chat_service import USER_FRIENDLY_ERROR, ChatService

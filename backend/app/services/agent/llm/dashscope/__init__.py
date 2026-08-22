@@ -5,7 +5,7 @@
 
 from langchain_openai import ChatOpenAI
 
-from app.config.settings import settings
+from app.config import agent_settings
 
 
 def create_dashscope_llm(
@@ -30,7 +30,7 @@ def create_dashscope_llm(
         kwargs["extra_body"] = {"enable_thinking": False}
     return ChatOpenAI(
         model=model,
-        base_url=settings.DASHSCOPE_BASE_URL,
-        api_key=settings.DASHSCOPE_API_KEY,
+        base_url=agent_settings.DASHSCOPE_BASE_URL,
+        api_key=agent_settings.DASHSCOPE_API_KEY,
         **kwargs,
     )

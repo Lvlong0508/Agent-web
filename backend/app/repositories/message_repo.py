@@ -1,6 +1,6 @@
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.config.settings import settings
+from app.config import database_settings
 from app.models.message import Message
 
 
@@ -8,7 +8,7 @@ class MessageRepo:
     """消息集合的数据访问层：处理 MongoDB messages 文档的 CRUD"""
 
     # 集合名从配置读取（env 可覆盖），统一管理避免硬编码
-    COLLECTION = settings.MONGODB_COLLECTIONS["messages"]
+    COLLECTION = database_settings.MONGODB_COLLECTIONS["messages"]
 
     def __init__(self, db: AsyncIOMotorDatabase):
         self.collection = db[self.COLLECTION]

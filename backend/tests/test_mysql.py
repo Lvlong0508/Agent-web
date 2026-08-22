@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
-from app.config.settings import settings
+from app.config import database_settings
 from app.middleware.mysql import Base, SessionLocal, engine, get_db
 
 
@@ -12,13 +12,13 @@ def test_engine_url_points_to_agentweb_db():
     """测试引擎连接串指向 agent-web 库与应用账号（密码需已 URL 编码）"""
     url = engine.url
     assert url.drivername == "mysql+asyncmy"
-    assert url.username == settings.MYSQL_USER
-    assert url.host == settings.MYSQL_HOST
-    assert url.port == settings.MYSQL_PORT
-    assert url.database == settings.MYSQL_DB_NAME
+    assert url.username == database_settings.MYSQL_USER
+    assert url.host == database_settings.MYSQL_HOST
+    assert url.port == database_settings.MYSQL_PORT
+    assert url.database == database_settings.MYSQL_DB_NAME
     # URL 对象返回解码后的原始密码；@ 等特殊字符在渲染连接串时被编码，
     # 编码正确性由下面的真实连通测试实际验证
-    assert url.password == settings.MYSQL_PASSWORD
+    assert url.password == database_settings.MYSQL_PASSWORD
     assert url.query.get("charset") == "utf8mb4"
 
 
@@ -39,7 +39,7 @@ async def test_mysql_connectivity_select_1():
         pytest.skip(f"本地 MySQL 不可用，跳过连通性测试：{exc}")
 
     assert one == 1
-    assert db_name == settings.MYSQL_DB_NAME
+    assert db_name == database_settings.MYSQL_DB_NAME
 
 
 @pytest.mark.asyncio
