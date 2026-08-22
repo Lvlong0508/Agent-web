@@ -169,10 +169,16 @@ class ChatService:
         today = time.strftime("%Y-%m-%d", time.localtime())
         # 按用户输入检索 top-K 技能，生成 L0 索引文本（检索异常内部降级为全量/空）。
         # 加超时保护：embedding 服务挂起时不能让首字无限等待（检索只依赖 content，
-        # 与历史拉取并行执行可缩短首字延迟）
-        skills_index = await asyncio.wait_for(
-            get_relevant_skills_prompt(content), timeout=SKILL_RETRIEVAL_TIMEOUT
-        )
+        # 与历史拉取并行执行可缩短首字延迟）。
+        # 超时降级为空索引（而非全量）：避免给 planner 塞入膨胀上下文，且不阻塞主流程。
+        # 此前无 try/except，TimeoutError 会冒泡导致整条请求失败（实测偶发触发）。
+        try:
+            skills_index = await asyncio.wait_for(
+                get_relevant_skills_prompt(content), timeout=SKILL_RETRIEVAL_TIMEOUT
+            )
+        except TimeoutError:
+            logger.warning("技能检索超时（>%.1fs），降级为空索引", SKILL_RETRIEVAL_TIMEOUT)
+            skills_index = ""
         langchain_messages = build_agent_messages(
             history, today, skills_index
         )
