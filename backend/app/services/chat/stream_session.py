@@ -16,14 +16,12 @@ class StreamSession:
     """一次流式会话的全部可变状态（构造即初始化，替代闭包捕获的局部变量）。
 
     reply_state：回复状态机（待定回复/最终版/阶段，见 reply_state.py）
-    trace_messages：全链路 trace 记录（含本次用户首条，兼容旧字段）
     trace_collector：debug 流采集器（可选注入，缺省 None 时跳过 debug 收集）
     run_recorded：是否已成功落库（finally 兜底判断客户端中途断开）
     sse_events：待序列化的领域事件队列（handler 注入同一对象）
     """
 
     reply_state: ReplyState = field(default_factory=ReplyState)
-    trace_messages: list = field(default_factory=list)
     trace_collector: object = None
     run_recorded: bool = False
     sse_events: list[SSEEvent] = field(default_factory=list)

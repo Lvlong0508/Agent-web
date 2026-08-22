@@ -113,7 +113,6 @@ class ChatService:
         user_id: str,
         model: str,
         status: str,
-        messages: list[dict],
         trace_id: str,
         collector=None,
         callback=None,
@@ -139,7 +138,6 @@ class ChatService:
                 model=model,
                 status=status,
                 error=error,
-                messages=messages,
                 raw_steps=raw_steps,
                 entry=entry,
                 trace_id=trace_id,
@@ -206,10 +204,7 @@ class ChatService:
         entry = collector.build_entry(langchain_messages)
         # 用户端 messages 集合保存精简视图（user/assistant），agent_runs
         # 保存三层结构（steps），两者各自独立落库
-        session = StreamSession(
-            trace_collector=collector,
-            trace_messages=[{"role": "user", "content": content}],
-        )
+        session = StreamSession(trace_collector=collector)
         # SSE 事件先入领域事件队列，再由编排器逐个序列化 yield，保证推送时机受控
         serializer = SSESerializer()
         # 事件路由：按请求实例化（严禁全局单例），订阅业务事件。
@@ -268,7 +263,7 @@ class ChatService:
             await self.msg_repo.create(assistant_msg)
 
             # 全链路落库（status=ok），携带 trace_id 供管理员串联错误链
-            await self._save_run(conv_id, user_id, model, "ok", [], trace_id=trace_id,
+            await self._save_run(conv_id, user_id, model, "ok", trace_id=trace_id,
                                  collector=collector, callback=callback, entry=entry)
             session.run_recorded = True
         except Exception as e:
@@ -276,7 +271,7 @@ class ChatService:
             # 注意此时用户消息已保存（在 try 之前），assistant 消息不保存
             # （没有最终回复），符合预期
             await self._save_run(
-                conv_id, user_id, model, "error", [], trace_id=trace_id,
+                conv_id, user_id, model, "error", trace_id=trace_id,
                 collector=collector, callback=callback, entry=entry, error=str(e),
             )
             session.run_recorded = True
@@ -292,7 +287,7 @@ class ChatService:
             # 落库失败由 _save_run 内部静默吞掉，不干扰生成器关闭流程
             if not session.run_recorded:
                 await self._save_run(
-                    conv_id, user_id, model, "error", [], trace_id=trace_id,
+                    conv_id, user_id, model, "error", trace_id=trace_id,
                     collector=collector, callback=callback, entry=entry,
                     error="流被中断（客户端断开或取消）",
                 )

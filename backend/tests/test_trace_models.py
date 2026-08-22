@@ -23,10 +23,9 @@ def test_trace_call_llm():
 
 
 def test_trace_call_tool():
-    """工具调用：tool_name/arguments/result 字段"""
+    """工具调用：tool_name/result 字段"""
     call = TraceCall(call_id="call_002", call_type="tool", tool_name="time_tool",
-                     tool_call_id="call_1", tool_arguments={"city": "北京"},
-                     tool_result="北京晴 25 度")
+                     tool_call_id="call_1", tool_result="北京晴 25 度")
     assert call.tool_call_id == "call_1"
 
 

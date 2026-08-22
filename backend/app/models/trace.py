@@ -19,7 +19,6 @@ class TraceCall(BaseModel):
     finish_reason: str | None = None # llm：stop / tool_calls
     tool_name: str | None = None     # tool：工具名
     tool_call_id: str | None = None  # tool：工具调用 ID（与 AIMessage.tool_calls 对应）
-    tool_arguments: dict | None = None  # tool：工具参数
     tool_result: str | None = None   # tool：工具结果
     start_time: datetime | None = None
     duration_ms: int = 0

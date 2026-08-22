@@ -11,10 +11,9 @@ from app.services.chat.stream_session import StreamOrchestrator, StreamSession
 
 def test_initial_state_ready():
     """构造即初始化：空流/立即出错场景下初始状态可用（与旧时序一致）"""
-    session = StreamSession(trace_messages=[{"role": "user", "content": "hi"}])
+    session = StreamSession()
     assert session.reply_state.phase == ReplyPhase.PENDING
     assert session.reply_state.pending_reply == ""
-    assert session.trace_messages == [{"role": "user", "content": "hi"}]
     assert session.run_recorded is False
     assert session.sse_events == []
 

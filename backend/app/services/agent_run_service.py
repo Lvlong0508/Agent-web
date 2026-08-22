@@ -27,42 +27,28 @@ class AgentRunService:
         user_id: str,
         model: str,
         status: str = "ok",
-        messages: list[dict] | None = None,
         raw_steps: list[dict] | None = None,
         entry: dict | None = None,
         trace_id: str = "",
         error: str | None = None,
     ) -> AgentRun:
-        """插入一条运行记录：内部构造 AgentRun 落库，返回完整对象。
+        """插入一条运行记录：把 raw_steps 组装为三层 AgentRun 落库。
 
-        raw_steps/entry：三层结构的原始 Step 记录（chat 侧 TraceCollector 产出），
-        非空时组装为 steps 并生成运行级汇总；兼容旧 messages 参数（退化路径）。
+        raw_steps/entry：原始 Step 记录（chat 侧 TraceCollector 产出），
+        组装为 steps 并生成运行级汇总；缺省为 None 时落空三层（空 steps）。
         """
-        if raw_steps:
-            steps = self._assemble_steps(raw_steps, entry)
-            summary = self._summarize(steps)
-            run = AgentRun(
-                conversation_id=conversation_id,
-                user_id=user_id,
-                model=model,
-                status=status,
-                messages=[],
-                trace_id=trace_id,
-                error=error,
-                steps=steps,
-                **summary,
-            )
-        else:
-            # 退化路径：旧 messages 直存（历史调用方/测试兼容）
-            run = AgentRun(
-                conversation_id=conversation_id,
-                user_id=user_id,
-                model=model,
-                status=status,
-                messages=messages or [],
-                trace_id=trace_id,
-                error=error,
-            )
+        steps = self._assemble_steps(raw_steps, entry)
+        summary = self._summarize(steps)
+        run = AgentRun(
+            conversation_id=conversation_id,
+            user_id=user_id,
+            model=model,
+            status=status,
+            trace_id=trace_id,
+            error=error,
+            steps=steps,
+            **summary,
+        )
         return await self.repo.create(run)
 
     def _assemble_steps(self, raw_steps: list[dict], entry: dict | None) -> list[TraceStep]:

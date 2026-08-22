@@ -413,29 +413,28 @@ async def test_chat_stream_records_verifier_verdict_in_trace():
 
 @pytest.mark.asyncio
 async def test_agent_run_service_create():
-    """插入：service 内部构造 AgentRun 后交给 repo，返回 repo 结果"""
+    """插入：service 内部把 raw_steps 组装为三层 AgentRun 后交给 repo"""
     db = MagicMock()
     service = AgentRunService(db)
     service.repo.create = AsyncMock(return_value=None)
 
     result = await service.create(
         conversation_id="c1", user_id="u1", model="ollama",
-        status="ok", messages=[{"role": "user", "content": "你好"}],
-        trace_id="t1", error=None,
+        status="ok", raw_steps=[], trace_id="t1", error=None,
     )
 
-    # 透传完整 AgentRun 对象（含默认值：messages 空、status ok、error None）
+    # 透传完整 AgentRun 对象（默认值：steps 空、status ok、error None）
     run = service.repo.create.await_args.args[0]
     assert isinstance(run, AgentRun)
     assert run.conversation_id == "c1"
     assert run.trace_id == "t1"
-    assert run.messages == [{"role": "user", "content": "你好"}]
+    assert run.steps == []
     assert result is None  # 返回 repo.create 的结果
 
 
 @pytest.mark.asyncio
 async def test_agent_run_service_create_defaults():
-    """插入默认值：status=ok、messages 空列表、trace_id 空串、error None"""
+    """插入默认值：status=ok、steps 空、trace_id 空串、error None"""
     db = MagicMock()
     service = AgentRunService(db)
     service.repo.create = AsyncMock(return_value=None)
@@ -444,7 +443,7 @@ async def test_agent_run_service_create_defaults():
 
     run = service.repo.create.await_args.args[0]
     assert run.status == "ok"
-    assert run.messages == []
+    assert run.steps == []
     assert run.trace_id == ""
     assert run.error is None
 
