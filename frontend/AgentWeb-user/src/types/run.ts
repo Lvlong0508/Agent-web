@@ -37,5 +37,43 @@ export interface AgentRun {
   error?: string | null
   trace_id: string
   created_at: string
-  messages: AgentMessage[]
+  messages: AgentMessage[]   // 兼容字段（旧记录），前端不再渲染
+  // === 三层结构：运行级汇总 + 节点级步骤（对齐 AgentRunResponse）===
+  duration_ms: number
+  total_input_tokens: number
+  total_output_tokens: number
+  verdict: string | null     // "pass" | "fail" | null
+  retry_count: number
+  steps: TraceStep[]
+}
+
+// Call 级：一次 LLM 或工具调用（对齐 backend models/trace.py TraceCall）
+export interface TraceCall {
+  call_id: string
+  call_type: string          // "llm" | "tool"
+  model?: string | null      // llm：模型名
+  input_tokens: number
+  output_tokens: number
+  finish_reason?: string | null  // llm：stop / tool_calls
+  tool_name?: string | null  // tool：工具名
+  tool_call_id?: string | null   // tool：工具调用 ID
+  tool_result?: string | null    // tool：工具结果
+  start_time?: string | null
+  duration_ms: number
+}
+
+// Step 级：一次图节点执行（对齐 backend models/trace.py TraceStep）
+export interface TraceStep {
+  step_id: string
+  node_name: string          // agent / tools / planner / verifier / generate_title
+  step_type: string          // entry | planner | agent | tool | verifier | title
+  status: string             // success | error | degraded
+  start_time?: string | null
+  end_time?: string | null
+  duration_ms: number
+  input?: Record<string, unknown> | null
+  output?: Record<string, unknown> | null
+  metrics?: Record<string, unknown> | null
+  error_info?: Record<string, unknown> | null
+  calls: TraceCall[]
 }
