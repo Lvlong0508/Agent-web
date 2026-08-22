@@ -156,6 +156,10 @@
 .status-badge.ok { background: rgba(52, 199, 89, 0.12); color: #34C759; }
 .status-badge.error { background: rgba(255, 59, 48, 0.12); color: #FF3B30; }
 
+/* 判定列配色：pass 绿 / fail 红 */
+.verdict-pass { color: #34C759; font-weight: 500; }
+.verdict-fail { color: #FF3B30; font-weight: 500; }
+
 .cell-error {
   display: block;   /* span 需块级，max-width/overflow 才对行内元素生效 */
   max-width: 200px;

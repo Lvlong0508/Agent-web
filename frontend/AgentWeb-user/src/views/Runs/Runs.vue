@@ -5,8 +5,11 @@ import {
   RUNS_TITLE, RUNS_SUBTITLE, SEARCH_PLACEHOLDER, SEARCH_EMPTY,
   EMPTY_RUNS, LOADING, REFRESH, DELETE_SELECTED,
   COL_STATUS, COL_TIME, COL_MODEL, COL_CONVERSATION, COL_TRACE,
-  COL_MESSAGES, COL_ERROR, STATUS_OK, STATUS_ERROR, CLOSE,
+  COL_STEPS, COL_VERDICT, COL_DURATION, COL_TOKEN, COL_ERROR,
+  STATUS_OK, STATUS_ERROR, CLOSE,
 } from './Text'
+// 三层结构：耗时与 Token 数由共享格式化函数渲染（'—' 兜底空值）
+import { formatDuration, formatTokens } from '@/utils/format'
 import { useRuns } from './Runs'
 import './Runs.css'
 import RunDetail from '@/components/run-detail/RunDetail.vue'
@@ -72,16 +75,19 @@ function formatTime(iso) {
               <th>{{ COL_MODEL }}</th>
               <th>{{ COL_CONVERSATION }}</th>
               <th>{{ COL_TRACE }}</th>
-              <th>{{ COL_MESSAGES }}</th>
+              <th>{{ COL_STEPS }}</th>
+              <th>{{ COL_VERDICT }}</th>
+              <th>{{ COL_DURATION }}</th>
+              <th>{{ COL_TOKEN }}</th>
               <th>{{ COL_ERROR }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="loading">
-              <td colspan="8" class="runs-empty">{{ LOADING }}</td>
+              <td colspan="11" class="runs-empty">{{ LOADING }}</td>
             </tr>
             <tr v-else-if="filteredRuns.length === 0">
-              <td colspan="8" class="runs-empty">
+              <td colspan="11" class="runs-empty">
                 {{ searchQuery ? SEARCH_EMPTY : EMPTY_RUNS }}
               </td>
             </tr>
@@ -105,7 +111,15 @@ function formatTime(iso) {
               <td class="mono" :title="run.trace_id">
                 <span class="cell-ellipsis">{{ run.trace_id }}</span>
               </td>
-              <td>{{ run.messages.length }}</td>
+              <td>{{ run.steps?.length ?? 0 }}</td>
+              <!-- 判定列：pass 绿 / fail 红 / 空值显示横线 -->
+              <td>
+                <span v-if="run.verdict === 'pass'" class="verdict-pass">✓ 通过</span>
+                <span v-else-if="run.verdict === 'fail'" class="verdict-fail">✗ 不通过</span>
+                <span v-else>—</span>
+              </td>
+              <td>{{ formatDuration(run.duration_ms) }}</td>
+              <td>{{ formatTokens(run.total_input_tokens + run.total_output_tokens) }}</td>
               <td>
                 <span v-if="run.error" class="cell-error" :title="run.error">{{ run.error }}</span>
                 <span v-else>—</span>
