@@ -44,11 +44,12 @@ def _current_trace_id() -> str | None:
 def serialize_message(msg) -> dict:
     """把 LangChain 消息转成可落库的普通 dict（全链路 trace 的标准格式）。
 
-    设计要点（规格 5.2 + 两轮评审落地）：
+    设计要点（规格 5.2 + 两轮评审落地 + spec 2026-08-22）：
     - role 映射：ai→assistant / human→user / tool→tool / 其余原样
     - AIMessage 保留 tool_calls（args 若是 JSON 字符串则转为 dict）
-    - 刻意丢弃 response_metadata（token_usage/model_name/finish_reason 等
-      元数据噪音）：全链路追踪去冗余，只留业务可读的回复内容与工具调用
+    - response_metadata 不整体落库（防冗余），但提取 model/token 指标进
+      metadata 字段（供管理员查看成本，spec §4.4）；兼容 token_usage 两种
+      命名（input/output_tokens 与 prompt/completion_tokens）
     - ToolMessage 保留 tool_call_id 与 name（追溯每条工具结果由哪次调用产生）
     - 禁止把 BaseMessage 对象直接放进事件 payload，必须先经本函数序列化
     """
@@ -82,6 +83,17 @@ def serialize_message(msg) -> dict:
             # 全链路审计才能精确还原"某次调用 → 其结果"的关联（规格 5.2 审计要求）
             calls.append({"name": tc.get("name"), "args": args, "id": tc.get("id")})
         entry["tool_calls"] = calls
+    # 提取模型与 token 指标进 metadata（供全链路查看成本）；无则不写，避免空值噪音
+    metadata = getattr(msg, "response_metadata", None) or {}
+    if metadata:
+        usage = metadata.get("token_usage") or {}
+        entry["metadata"] = {
+            "model": metadata.get("model_name"),
+            "input_tokens": usage.get("input_tokens") or usage.get("prompt_tokens"),
+            "output_tokens": usage.get("output_tokens") or usage.get("completion_tokens"),
+            "finish_reason": metadata.get("finish_reason"),
+        }
+        entry["metadata"] = {k: v for k, v in entry["metadata"].items() if v is not None}
     return entry
 
 

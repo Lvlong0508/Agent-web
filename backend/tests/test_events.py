@@ -37,12 +37,11 @@ def test_serialize_message_plain_human():
     assert out["content"] == "你好"
 
 
-def test_serialize_message_ai_drops_response_metadata():
-    """全链路追踪去冗余：AIMessage 序列化必须丢弃 response_metadata
-    （token_usage/model_name/finish_reason 等元数据噪音），只保留内容与
-    工具调用（用户实测：追踪过重、冗余）。
+def test_serialize_message_ai_keeps_metrics_metadata():
+    """全链路记录补全性能指标：AIMessage 序列化保留 response_metadata 的
+    model/token 到 metadata 字段（不再丢弃），供管理员查看成本。
     注意 response_metadata 的记录分支在 tool_calls 块内，须带 tool_calls
-    才走到真实代码路径（中间工具调用轮才带 response_metadata）"""
+    才走到真实代码路径（中间工具调用轮才带 response_metadata）。"""
     msg = AIMessage(
         content="让我查一下",
         tool_calls=[{
@@ -58,10 +57,29 @@ def test_serialize_message_ai_drops_response_metadata():
         },
     )
     out = serialize_message(msg)
-    assert "response_metadata" not in out
+    assert "response_metadata" not in out   # 原始键不落库（防冗余）
     assert out["role"] == "assistant"
     assert out["content"] == "让我查一下"
     assert out["tool_calls"][0]["name"] == "list_expenses"
+    # 指标进 metadata 字段（兼容 prompt_tokens/completion_tokens 命名）
+    assert out["metadata"]["model"] == "qwen3.7-flash"
+    assert out["metadata"]["input_tokens"] == 1798
+    assert out["metadata"]["output_tokens"] == 86
+    assert out["metadata"]["finish_reason"] == "tool_calls"
+
+
+def test_serialize_message_keeps_usage_metadata():
+    """AIMessage 带 input_tokens/output_tokens 命名：同样保留进 metadata"""
+    msg = AIMessage(
+        content="hi",
+        response_metadata={"model_name": "qwen-max",
+                           "token_usage": {"input_tokens": 12, "output_tokens": 3}},
+    )
+    entry = serialize_message(msg)
+    assert entry["role"] == "assistant"
+    assert entry["metadata"]["model"] == "qwen-max"
+    assert entry["metadata"]["input_tokens"] == 12
+    assert entry["metadata"]["output_tokens"] == 3
 
 
 def test_serialize_message_ai_with_args_json_string():
