@@ -19,6 +19,9 @@ AGENTS.md
 # backend
 backend/.env
 
+# Chroma 数据目录（Docker 挂载，本地不提交）
+.chroma/
+
 # 学习图片
 LangChain与LangGraph对比图.png
 LangGraph流程图.png

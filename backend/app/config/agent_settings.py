@@ -63,7 +63,9 @@ class AgentSettings(BaseSettings):
     SKILL_ALWAYS_INJECT: list[str] = []
 
     # ---- 知识库（向量检索）配置 ----
-    # kb_type -> collection 名映射：四类库各占一个 collection，可独立调参
+    # kb_type -> collection 名映射：四类库各占一个 collection，可独立调参。
+    # 支持 env 以 JSON 覆盖（如 CHROMA_COLLECTIONS={"enterprise":"kb_enterprise",...}），
+    # 与其他基础设施命名（MySQL 表 / MongoDB 集合）统一在 env 管理。
     CHROMA_COLLECTIONS: dict[str, str] = {
         "enterprise": "kb_enterprise",  # 企业公共知识库（全体用户可查）
         "user": "kb_user",              # 用户私有知识库（owner_id 隔离）

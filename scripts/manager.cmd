@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-rem 配置
+rem 设置根目录
 set "ROOT_DIR=%~dp0.."
 pushd "%ROOT_DIR%"
 set "ROOT_DIR=%CD%"
@@ -13,7 +13,7 @@ set "FRONTEND_PORT=5173"
 
 :menu
 echo ==========================================
-echo   后端 + 前端服务管理器
+echo   后端 + 前端启动管理
 echo   1.启动后端  2.启动前端  3.启动全部
 echo   4.停止后端  5.停止前端  6.停止全部
 echo   7.重启后端  8.重启前端  9.查看状态  0.退出
@@ -73,13 +73,13 @@ goto :menu
 :do_status
 call :check_port %BACKEND_PORT%
 if "!RUNNING!"=="1" (
-    echo [后端] 运行中，端口 %BACKEND_PORT%
+    echo [后端] 正在运行中，端口 %BACKEND_PORT%
 ) else (
     echo [后端] 已停止
 )
 call :check_port %FRONTEND_PORT%
 if "!RUNNING!"=="1" (
-    echo [前端] 运行中，端口 %FRONTEND_PORT%
+    echo [前端] 正在运行中，端口 %FRONTEND_PORT%
 ) else (
     echo [前端] 已停止
 )
@@ -88,12 +88,12 @@ goto :menu
 :start_backend
 call :check_port %BACKEND_PORT%
 if "!RUNNING!"=="1" (
-    echo [后端] 已经在运行中
+    echo [后端] 已在运行中，无需重复启动
     goto :eof
 )
 echo [后端] 正在启动...
 start "Backend" /D "%BACKEND_DIR%" cmd /c "call conda activate agent-web && uvicorn app.main:app --reload --host 0.0.0.0 --port %BACKEND_PORT%"
-echo [后端] 已启动
+echo [后端] 启动完成
 goto :eof
 
 :stop_backend
@@ -102,7 +102,7 @@ powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $
 timeout /t 1 /nobreak >nul
 call :check_port %BACKEND_PORT%
 if "!RUNNING!"=="1" (
-    echo [警告] 后端可能未完全停止，请检查端口 %BACKEND_PORT%
+    echo [警告] 停止失败，可能仍在监听端口 %BACKEND_PORT%
 ) else (
     echo [后端] 已停止
 )
@@ -111,12 +111,12 @@ goto :eof
 :start_frontend
 call :check_port %FRONTEND_PORT%
 if "!RUNNING!"=="1" (
-    echo [前端] 已经在运行中
+    echo [前端] 已在运行中，无需重复启动
     goto :eof
 )
 echo [前端] 正在启动...
 start "Frontend" /D "%FRONTEND_DIR%" cmd /c "npm run dev -- --host 0.0.0.0 --port %FRONTEND_PORT% --strictPort"
-echo [前端] 已启动
+echo [前端] 启动完成
 goto :eof
 
 :stop_frontend
@@ -125,13 +125,13 @@ powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $
 timeout /t 1 /nobreak >nul
 call :check_port %FRONTEND_PORT%
 if "!RUNNING!"=="1" (
-    echo [警告] 前端可能未完全停止，请检查端口 %FRONTEND_PORT%
+    echo [警告] 停止失败，可能仍在监听端口 %FRONTEND_PORT%
 ) else (
     echo [前端] 已停止
 )
 goto :eof
 
-rem ---------- 辅助函数 ----------
+rem ---------- 端口检查 ----------
 :check_port
 set "RUNNING=0"
 for /f "tokens=5" %%a in ('netstat -ano -p tcp ^| findstr /r /c:":%~1 .*LISTENING"') do (
@@ -141,9 +141,9 @@ for /f "tokens=5" %%a in ('netstat -ano -p tcp ^| findstr /r /c:":%~1 .*LISTENIN
 goto :eof
 
 :exit
-echo 正在清理所有子进程...
+echo 正在退出并清理所有服务...
 call :stop_backend
 call :stop_frontend
-echo 所有服务已停止，退出
+echo 所有服务已停止，程序退出
 endlocal
 exit /b 0

@@ -22,7 +22,22 @@ def test_skills_dir_migrated_to_agent_settings():
 
 
 def test_chroma_config_defaults():
-    """Chroma 基础设施配置默认值：localhost:8000，embedding 维度 1024"""
+    """Chroma 基础设施配置默认值：localhost:8000，embedding 维度 1024，
+    tenant 保持 default_tenant，database 用项目名与其他项目隔离"""
     assert settings.CHROMA_HOST == "localhost"
     assert settings.CHROMA_PORT == 8000
     assert settings.EMBEDDING_DIM == 1024
+    assert settings.CHROMA_TENANT == "default_tenant"
+    assert settings.CHROMA_DATABASE == "agent-web"
+
+
+def test_data_name_mappings_defaults():
+    """数据表/集合名统一从配置读取（env 可 JSON 覆盖），不再散落硬编码"""
+    # MySQL 表名映射：逻辑名 expense -> 真实表 expenses
+    assert settings.MYSQL_TABLES == {"expense": "expenses"}
+    # MongoDB 集合名映射：逻辑名与真实集合名一致，env 可改 value
+    assert settings.MONGODB_COLLECTIONS == {
+        "agent_runs": "agent_runs",
+        "conversations": "conversations",
+        "messages": "messages",
+    }

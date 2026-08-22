@@ -1,12 +1,14 @@
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.config.settings import settings
 from app.models.agent_run import AgentRun
 
 
 class AgentRunRepo:
     """agent 运行记录的数据访问层：处理 MongoDB agent_runs 集合的 CRUD"""
 
-    COLLECTION = "agent_runs"
+    # 集合名从配置读取（env 可覆盖），统一管理避免硬编码
+    COLLECTION = settings.MONGODB_COLLECTIONS["agent_runs"]
 
     def __init__(self, db: AsyncIOMotorDatabase):
         self.collection = db[self.COLLECTION]
